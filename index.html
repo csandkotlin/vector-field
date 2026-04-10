@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vector Field: Special Enemies | Bomber Nuke + Shooter Squad</title>
+    <title>Vector Field: Special Enemies | Hardcore Balance</title>
     <style>
         * { user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
@@ -59,10 +59,32 @@
             padding: 4px 12px; border-radius: 20px; font-family: monospace;
             pointer-events: none; backdrop-filter: blur(2px);
         }
-        @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+        .play-again-btn {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ff6600;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 40px;
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 20;
+            box-shadow: 0 0 20px rgba(255,102,0,0.5);
+            transition: all 0.2s;
+            animation: blink 1s infinite;
+        }
+        .play-again-btn:hover {
+            transform: translateX(-50%) scale(1.05);
+            background: #ff8844;
+        }
+        @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
         @keyframes countdown { 0%{transform:scale(1);} 50%{transform:scale(1.05);text-shadow:0 0 5px #ffaa66;} 100%{transform:scale(1);} }
         @keyframes healPopup { 0%{opacity:1;transform:scale(0.5);} 100%{opacity:0;transform:scale(1.5);} }
-        @keyframes warning { 0%,100%{text-shadow:0 0 0 red;} 50%{text-shadow:0 0 10px red;} }
     </style>
 </head>
 <body>
@@ -74,14 +96,14 @@
         <div class="respawn-timer" id="respawnTimer">🤖 RESPAWN IN: --s</div>
         <div class="respawn-hint">🎮 <kbd>R</kbd> - RESPAWN NGAY (50 ĐIỂM)</div>
     </div>
-    <div class="status">⚡ VECTOR FIELD | BOMBER NUKE + SHOOTER SQUAD ⚡</div>
+    <div class="status">⚡ VECTOR FIELD | HARDCORE BALANCE ⚡</div>
     <div class="stats-panel">
-        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e;">3</span>&nbsp;&nbsp;|&nbsp;
+        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e;">5</span>&nbsp;&nbsp;|&nbsp;
         🎯 SCORE: <span id="scoreDisplay">0</span>&nbsp;&nbsp;|&nbsp;
         🤖 BOT: <span id="botStatus" style="color:#44aaff;">ACTIVE</span>
     </div>
     <div class="instruction">
-        🖱️ CHUỘT → TAM GIÁC | 🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER (FF + SQUAD) | 💣 BOMBER (NUKE 120px) | 🧱 OBSTACLES | 💚 HEAL | 🌀 TELEPORTER
+        🖱️ CHUỘT → TAM GIÁC | 🏃 RUNNER (KÍCH NỔ BOMBER) | 🛡️ TANKER | 🔫 SHOOTER (FF+SQUAD) | 💣 BOMBER (NUKE 160px, 4DMG, 4HP) | 🧱 OBSTACLES | 💚 HEAL
     </div>
 </div>
 
@@ -102,7 +124,7 @@
         const respawnTimerDiv = document.getElementById('respawnTimer');
         
         let gameActive = true;
-        let health = 3;
+        let health = 5; // Tăng lên 5 HP
         let score = 0;
         let cameraX = 0, cameraY = 0;
         
@@ -114,6 +136,7 @@
         
         // ----- HIỆU ỨNG -----
         let healEffects = [];
+        let botHealEffects = [];
         let teleporters = [];
         let teleportCooldown = 0;
         const TELEPORT_INTERVAL = 600;
@@ -134,7 +157,8 @@
             x: MAP_W/2 - 45, y: MAP_H/2 + 30, radius: 12,
             active: true, shootTimer: 0, shootDelay: 12,
             hp: 5, maxHp: 5,
-            healTimer: 0, healDelay: 600
+            healTimer: 0, healDelay: 600, // Heal player mỗi 10s
+            selfHealTimer: 0, selfHealDelay: 480 // Bot tự hồi mỗi 8 giây
         };
         
         let botRespawnTimer = 0;
@@ -183,10 +207,20 @@
         
         // ========== HỒI MÁU ==========
         function healPlayer() {
-            if (health < 3) {
+            if (health < 5) {
                 health++;
                 updateUI();
                 healEffects.push({ x: player.x, y: player.y, timer: 20 });
+                return true;
+            }
+            return false;
+        }
+        
+        function healBot() {
+            if (supportBot.active && supportBot.hp < supportBot.maxHp) {
+                supportBot.hp++;
+                botHealEffects.push({ x: supportBot.x, y: supportBot.y, timer: 20 });
+                updateUI();
                 return true;
             }
             return false;
@@ -242,12 +276,29 @@
             }
         }
         
-        // ========== SPAWN ENEMY (có squad shooter) ==========
+        // ========== SPAWN ENEMY ==========
+        function shouldSpawnSquad() {
+            if (score < 700) return false;
+            // Chỉ spawn ở các mốc 700, 800, 900, 1000...
+            let milestone = Math.floor(score / 100) * 100;
+            if (milestone < 700) return false;
+            // Kiểm tra xem đã spawn squad ở mốc này chưa
+            if (!window.spawnedMilestones) window.spawnedMilestones = {};
+            if (window.spawnedMilestones[milestone]) return false;
+            
+            // 25% tỉ lệ spawn
+            if (Math.random() < 0.25) {
+                window.spawnedMilestones[milestone] = true;
+                return true;
+            }
+            return false;
+        }
+        
         function spawnEnemy() {
             if (!gameActive) return;
             
-            // ĐỘI HÌNH SHOOTER KHI SCORE >= 700
-            if (score >= 700 && Math.random() < 0.4) {
+            // Kiểm tra spawn squad ở mốc điểm
+            if (shouldSpawnSquad()) {
                 spawnShooterSquad();
                 return;
             }
@@ -278,7 +329,6 @@
         }
         
         function spawnShooterSquad() {
-            // Tìm hướng spawn (cạnh map)
             let side = Math.floor(Math.random() * 4);
             let baseX, baseY;
             const padding = 80;
@@ -288,18 +338,14 @@
             else if (side === 2) { baseX = Math.random() * MAP_W; baseY = -padding; }
             else { baseX = Math.random() * MAP_W; baseY = MAP_H + padding; }
             
-            // Tạo 4 shooter thành hàng ngang
             const spacing = 60;
             const directions = [-1.5, -0.5, 0.5, 1.5];
             
             for (let i = 0; i < 4; i++) {
                 let offsetX = directions[i] * spacing;
                 let offsetY = (i % 2 === 0 ? -20 : 20);
-                
                 let x = baseX + offsetX;
                 let y = baseY + offsetY;
-                
-                // Giới hạn trong map
                 x = Math.min(Math.max(x, 20), MAP_W - 20);
                 y = Math.min(Math.max(y, 20), MAP_H - 20);
                 
@@ -314,13 +360,12 @@
                 enemies.push({
                     x: x, y: y, vx: vx, vy: vy, r: 11,
                     type: 'shooter', hp: 2, maxHp: 2, color: '#ff44aa', points: 20,
-                    shootCooldown: Math.floor(20 + Math.random() * 30), // So le thoi gian ban
+                    shootCooldown: Math.floor(20 + Math.random() * 30),
                     explosionTimer: 0,
                     isSquadMember: true
                 });
             }
             
-            // Hiệu ứng cảnh báo
             explosions.push({ x: baseX, y: baseY, timer: 15, isWarning: true });
         }
         
@@ -338,7 +383,7 @@
                 case 'runner': radius = 8; speed = 2.4; hp = 1; color = '#ffaa44'; points = 15; break;
                 case 'tanker': radius = 16; speed = 0.7; hp = 4; color = '#aa66ff'; points = 30; break;
                 case 'shooter': radius = 11; speed = 1.0; hp = 2; color = '#ff44aa'; points = 20; break;
-                case 'bomber': radius = 12; speed = 0.7; hp = 2; color = '#ff6633'; points = 25; break;
+                case 'bomber': radius = 13; speed = 0.65; hp = 4; color = '#ff6633'; points = 35; break; // Bomber 4HP, trâu hơn
                 default: radius = 9 + Math.random() * 5; speed = 1.2; hp = 1; color = `hsl(${Math.random() * 360}, 85%, 58%)`; points = 10;
             }
             speed = Math.min(speed, 3.2);
@@ -419,6 +464,7 @@
             
             if (!supportBot.active) { updateUI(); return; }
             
+            // Bot hồi máu cho player
             if (supportBot.healTimer <= 0) {
                 if (healPlayer()) {
                     healEffects.push({ x: supportBot.x, y: supportBot.y, timer: 20, fromBot: true });
@@ -426,6 +472,16 @@
                 supportBot.healTimer = supportBot.healDelay;
             } else {
                 supportBot.healTimer--;
+            }
+            
+            // Bot tự hồi máu chính mình
+            if (supportBot.selfHealTimer <= 0) {
+                if (healBot()) {
+                    // Hiệu ứng riêng cho bot tự hồi
+                }
+                supportBot.selfHealTimer = supportBot.selfHealDelay;
+            } else {
+                supportBot.selfHealTimer--;
             }
             
             const time = Date.now() / 1000;
@@ -447,6 +503,7 @@
                 supportBot.x = player.x - 45;
                 supportBot.y = player.y + 30;
                 supportBot.healTimer = 0;
+                supportBot.selfHealTimer = 0;
                 updateUI();
             }
         }
@@ -459,6 +516,7 @@
                 supportBot.x = player.x - 45;
                 supportBot.y = player.y + 30;
                 supportBot.healTimer = 0;
+                supportBot.selfHealTimer = 0;
                 botRespawnTimer = 0;
                 updateUI();
             }
@@ -494,8 +552,47 @@
             }
         }
         
+        function handleRunnerTriggerBomber() {
+            for (let i = 0; i < enemies.length; i++) {
+                const runner = enemies[i];
+                if (runner.type !== 'runner') continue;
+                
+                for (let j = 0; j < enemies.length; j++) {
+                    const bomber = enemies[j];
+                    if (bomber.type !== 'bomber') continue;
+                    if (runner === bomber) continue;
+                    
+                    if (Math.hypot(runner.x - bomber.x, runner.y - bomber.y) < runner.r + bomber.r) {
+                        // Runner chạm bomber → bomber nổ ngay
+                        triggerBomberExplosion(bomber, j);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function triggerBomberExplosion(bomber, index) {
+            const EXPLOSION_RADIUS = 160;
+            const distToPlayer = Math.hypot(player.x - bomber.x, player.y - bomber.y);
+            if (distToPlayer < EXPLOSION_RADIUS) {
+                health -= 4; // Bomber sát thương 4 DMG
+                updateUI();
+                if (health <= 0) gameActive = false;
+            }
+            for (let k = enemies.length-1; k >= 0; k--) {
+                const other = enemies[k];
+                if (other !== bomber && Math.hypot(other.x - bomber.x, other.y - bomber.y) < EXPLOSION_RADIUS) {
+                    score += other.points;
+                    enemies.splice(k, 1);
+                }
+            }
+            explosions.push({ x: bomber.x, y: bomber.y, timer: 20, isBig: true });
+            enemies.splice(index, 1);
+            updateUI();
+        }
+        
         function handleBomberExplosions() {
-            const EXPLOSION_RADIUS = 120; // Tăng từ 75 lên 120
+            const EXPLOSION_RADIUS = 160;
             
             for (let i = 0; i < enemies.length; i++) {
                 const e = enemies[i];
@@ -504,7 +601,7 @@
                     if (e.explosionTimer <= 0) {
                         const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
                         if (distToPlayer < EXPLOSION_RADIUS) {
-                            health -= 2;
+                            health -= 4;
                             updateUI();
                             if (health <= 0) gameActive = false;
                         }
@@ -567,23 +664,10 @@
                         if (e.hp <= 0) {
                             score += e.points;
                             if (e.type === 'bomber') {
-                                const EXPLOSION_RADIUS = 120;
-                                const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
-                                if (distToPlayer < EXPLOSION_RADIUS) {
-                                    health -= 2;
-                                    updateUI();
-                                    if (health <= 0) gameActive = false;
-                                }
-                                for (let k = enemies.length-1; k >= 0; k--) {
-                                    const other = enemies[k];
-                                    if (other !== e && Math.hypot(other.x - e.x, other.y - e.y) < EXPLOSION_RADIUS) {
-                                        score += other.points;
-                                        enemies.splice(k, 1);
-                                    }
-                                }
-                                explosions.push({ x: e.x, y: e.y, timer: 20, isBig: true });
+                                triggerBomberExplosion(e, j);
+                            } else {
+                                enemies.splice(j, 1);
                             }
-                            enemies.splice(j, 1);
                             updateUI();
                         }
                         break;
@@ -593,26 +677,13 @@
         }
         
         function handleEnemyDeath(e, index) {
-            const EXPLOSION_RADIUS = 120;
             if (e.type === 'bomber') {
-                const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
-                if (distToPlayer < EXPLOSION_RADIUS) {
-                    health -= 2;
-                    updateUI();
-                    if (health <= 0) gameActive = false;
-                }
-                for (let k = enemies.length-1; k >= 0; k--) {
-                    const other = enemies[k];
-                    if (other !== e && Math.hypot(other.x - e.x, other.y - e.y) < EXPLOSION_RADIUS) {
-                        score += other.points;
-                        enemies.splice(k, 1);
-                    }
-                }
-                explosions.push({ x: e.x, y: e.y, timer: 20, isBig: true });
+                triggerBomberExplosion(e, index);
+            } else {
+                score += e.points;
+                enemies.splice(index, 1);
+                updateUI();
             }
-            score += e.points;
-            enemies.splice(index, 1);
-            updateUI();
         }
         
         function handleEnemyBulletCollisions() {
@@ -762,6 +833,21 @@
         function toScreenX(worldX) { return worldX - cameraX; }
         function toScreenY(worldY) { return worldY - cameraY; }
         
+        // ========== PLAY AGAIN ==========
+        function showPlayAgainButton() {
+            let existingBtn = document.querySelector('.play-again-btn');
+            if (existingBtn) existingBtn.remove();
+            
+            const btn = document.createElement('button');
+            btn.innerText = '🔄 PLAY AGAIN 🔄';
+            btn.className = 'play-again-btn';
+            btn.onclick = () => {
+                btn.remove();
+                initGame();
+            };
+            document.querySelector('.game-container').appendChild(btn);
+        }
+        
         // ========== VẼ ==========
         function drawMap() {
             ctx.fillStyle = "#030e03";
@@ -905,7 +991,7 @@
                 let screenX = toScreenX(e.x), screenY = toScreenY(e.y);
                 if (screenX + e.r < 0 || screenX - e.r > CAM_W || screenY + e.r < 0 || screenY - e.r > CAM_H) continue;
                 
-                if (e.type === 'tanker' && e.maxHp > 1) {
+                if ((e.type === 'tanker' || e.type === 'bomber') && e.maxHp > 1) {
                     const hpPercent = e.hp / e.maxHp;
                     ctx.fillStyle = "#ff3333";
                     ctx.fillRect(screenX - e.r - 2, screenY - e.r - 6, (e.r * 2 + 4) * hpPercent, 4);
@@ -924,7 +1010,7 @@
                 if (e.type === 'runner') ctx.fillText("⚡", screenX - 5, screenY + 5);
                 else if (e.type === 'tanker') ctx.fillText("🛡️", screenX - 6, screenY + 5);
                 else if (e.type === 'shooter') ctx.fillText("🔫", screenX - 5, screenY + 5);
-                else if (e.type === 'bomber') ctx.fillText("💣", screenX - 5, screenY + 5);
+                else if (e.type === 'bomber') ctx.fillText("💣", screenX - 6, screenY + 6);
                 
                 if (e.isSquadMember) {
                     ctx.beginPath();
@@ -959,7 +1045,7 @@
             for (let i = 0; i < explosions.length; i++) {
                 const exp = explosions[i];
                 const alpha = exp.timer / 20;
-                const radius = exp.isBig ? 120 : (exp.isWarning ? 60 : 75);
+                const radius = exp.isBig ? 160 : (exp.isWarning ? 60 : 75);
                 
                 ctx.beginPath();
                 ctx.arc(toScreenX(exp.x), toScreenY(exp.y), radius * (1 - alpha), 0, Math.PI * 2);
@@ -990,6 +1076,15 @@
                 heal.timer--;
                 if (heal.timer <= 0) healEffects.splice(i, 1);
             }
+            for (let i = 0; i < botHealEffects.length; i++) {
+                const heal = botHealEffects[i];
+                const alpha = heal.timer / 20;
+                ctx.font = `${14 + (6 * (1 - alpha))}px monospace`;
+                ctx.fillStyle = `rgba(100, 200, 255, ${alpha})`;
+                ctx.fillText("🩺", toScreenX(heal.x) - 10, toScreenY(heal.y) - 15 - (8 * (1 - alpha)));
+                heal.timer--;
+                if (heal.timer <= 0) botHealEffects.splice(i, 1);
+            }
         }
         
         function drawMouseTarget() {
@@ -1010,9 +1105,9 @@
         function drawUItext() {
             ctx.font = "bold 12px monospace";
             ctx.fillStyle = "#aaffaa88";
-            ctx.fillText(`🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER (FF+SQUAD@700) | 💣 BOMBER (NUKE 120px) | 🧱 OBSTACLES`, 15, 30);
+            ctx.fillText(`🏃 RUNNER (KÍCH NỔ BOMBER) | 🛡️ TANKER | 🔫 SHOOTER (FF+SQUAD@700+) | 💣 BOMBER (160px,4DMG,4HP)`, 15, 30);
             ctx.fillStyle = "#88dd88";
-            ctx.fillText(`⚡ R: RESPAWN BOT (50) | MAP: ${Math.floor(player.x)}/${MAP_W}, ${Math.floor(player.y)}/${MAP_H} | HP: ${health}/3`, 15, 55);
+            ctx.fillText(`⚡ R: RESPAWN BOT (50) | MAP: ${Math.floor(player.x)}/${MAP_W}, ${Math.floor(player.y)}/${MAP_H} | HP: ${health}/5`, 15, 55);
             ctx.font = "bold 13px monospace";
             ctx.fillStyle = "#80ffaa";
             ctx.fillText(`ENEMIES: ${enemies.length}`, CAM_W-120, 30);
@@ -1021,16 +1116,21 @@
                 ctx.fillStyle = "#aaffaa";
                 ctx.fillText(`💚 HEAL IN: ${seconds}s`, CAM_W-120, 55);
             }
+            if (supportBot.selfHealTimer > 0) {
+                let seconds = Math.ceil(supportBot.selfHealTimer / 60);
+                ctx.fillStyle = "#88aaff";
+                ctx.fillText(`🩺 BOT HEAL IN: ${seconds}s`, CAM_W-120, 80);
+            }
             if (teleportCooldown > 0) {
                 let seconds = Math.ceil(teleportCooldown / 60);
                 ctx.fillStyle = "#cc88ff";
-                ctx.fillText(`🌀 TELE IN: ${seconds}s`, CAM_W-120, 80);
+                ctx.fillText(`🌀 TELE IN: ${seconds}s`, CAM_W-120, 105);
             }
             
             if (score >= 700) {
                 ctx.fillStyle = "#ff6666";
                 ctx.font = "bold 14px monospace";
-                ctx.fillText("⚠️ SHOOTER SQUAD ACTIVE! ⚠️", CAM_W/2-100, 90);
+                ctx.fillText("⚠️ SHOOTER SQUAD READY! ⚠️", CAM_W/2-100, 90);
             }
         }
         
@@ -1042,6 +1142,7 @@
                 ctx.font = "18px monospace";
                 ctx.fillStyle = "#88dd88";
                 ctx.fillText(`FINAL SCORE: ${score}`, CAM_W/2-85, CAM_H/2+15);
+                showPlayAgainButton();
                 return true;
             }
             return false;
@@ -1058,6 +1159,7 @@
                 updateEnemiesAndDamage();
                 handleCollisionsBulletEnemy();
                 handleEnemyBulletCollisions();
+                handleRunnerTriggerBomber(); // Runner kích nổ bomber
                 handleBomberExplosions();
                 updateSpawning();
                 spawnTeleporter();
@@ -1110,20 +1212,23 @@
         
         function initGame() {
             gameActive = true;
-            health = 3;
+            health = 5;
             score = 0;
             bullets = [];
             botBullets = [];
             enemyBullets = [];
             explosions = [];
             healEffects = [];
+            botHealEffects = [];
             teleporters = [];
             enemies = [];
             teleportCooldown = 0;
+            window.spawnedMilestones = {};
             player.x = MAP_W/2; player.y = MAP_H/2;
             supportBot.active = true;
             supportBot.hp = supportBot.maxHp;
             supportBot.healTimer = 0;
+            supportBot.selfHealTimer = 0;
             supportBot.x = MAP_W/2 - 45; supportBot.y = MAP_H/2 + 30;
             mouseWorld.x = MAP_W/2; mouseWorld.y = MAP_H/2;
             shootTimer = 0;
@@ -1133,6 +1238,10 @@
             updateCamera();
             for(let i=0; i<3; i++) spawnEnemy();
             updateUI();
+            
+            // Xóa nút play again nếu có
+            let existingBtn = document.querySelector('.play-again-btn');
+            if (existingBtn) existingBtn.remove();
         }
         
         initGame();
