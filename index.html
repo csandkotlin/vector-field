@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Vector Field: Special Enemies | Large Map + Obstacles</title>
+    <style>
+        * {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: radial-gradient(circle at center, #0a0f0a, #000000);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            font-family: 'Courier New', 'Fira Code', monospace;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        .game-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .game-container {
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
+            border-radius: 16px;
+            background: #000;
+            padding: 4px;
+        }
+
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 12px;
+            box-shadow: 0 0 0 2px #1a4d1a, inset 0 0 10px rgba(0,255,0,0.1);
+            cursor: none;
+        }
+
+        .status {
+            position: absolute;
+            top: 16px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(3px);
+            padding: 6px 14px;
+            border-left: 4px solid #00ff66;
+            font-weight: bold;
+            letter-spacing: 1px;
+            font-size: 14px;
+            z-index: 10;
+            pointer-events: none;
+            border-radius: 0 12px 12px 0;
+            color: #bbffbb;
+            text-shadow: 0 0 4px #00aa33;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(3px);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-family: monospace;
+            font-size: 15px;
+            font-weight: bold;
+            color: #0f0;
+            border: 1px solid #2a6b2a;
+            text-align: right;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .respawn-area {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px 20px;
+            border-radius: 40px;
+            border: 1px solid #ff6600;
+            backdrop-filter: blur(4px);
+        }
+
+        .respawn-timer {
+            background: linear-gradient(135deg, #1a3a1a, #0a2a0a);
+            color: #ffaa66;
+            border: none;
+            padding: 8px 24px;
+            border-radius: 30px;
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 14px;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px rgba(255,102,0,0.3);
+        }
+
+        .respawn-hint {
+            color: #ffaa66;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .respawn-hint kbd {
+            background: #333;
+            padding: 2px 8px;
+            border-radius: 5px;
+            color: #ffaa66;
+            margin: 0 3px;
+            font-weight: bold;
+        }
+
+        .instruction {
+            position: absolute;
+            bottom: 18px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 11px;
+            color: #4a8f4a;
+            background: rgba(0,0,0,0.5);
+            width: fit-content;
+            margin: 0 auto;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-family: monospace;
+            pointer-events: none;
+            letter-spacing: 0.5px;
+            backdrop-filter: blur(2px);
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        @keyframes countdown {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); text-shadow: 0 0 5px #ffaa66; }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+    <div class="respawn-area">
+        <div class="respawn-timer" id="respawnTimer">🤖 RESPAWN IN: --s</div>
+        <div class="respawn-hint">
+            🎮 <kbd>R</kbd> - RESPAWN NGAY (50 ĐIỂM)
+        </div>
+    </div>
+    <div class="status">
+        ⚡ VECTOR FIELD | LARGE MAP + OBSTACLES ⚡
+    </div>
+    <div class="stats-panel">
+        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e; font-weight:bold;">3</span>&nbsp;&nbsp;|&nbsp;
+        🎯 SCORE: <span id="scoreDisplay">0</span>&nbsp;&nbsp;|&nbsp;
+        🤖 BOT: <span id="botStatus" style="color:#44aaff;">ACTIVE</span>
+    </div>
+    <div class="instruction">
+        🖱️ CHUỘT DI CHUYỂN → TAM GIÁC BÁM THEO | 🏃 RUNNER (ĐẨY) | 🛡️ TANKER 💪 | 🎯 SHOOTER 🔫 | 💣 BOMBER | 🧱 OBSTACLES
+    </div>
+</div>
+
+<script>
+    (function() {
+        // ----- KÍCH THƯỚC MAP & CAMERA -----
+        const MAP_W = 2000, MAP_H = 2000;  // Map rộng 2000x2000 cho thoải mái
+        const CAM_W = 800, CAM_H = 600;
+        
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = CAM_W;
+        canvas.height = CAM_H;
+        
+        const hpSpan = document.getElementById('hpDisplay');
+        const scoreSpan = document.getElementById('scoreDisplay');
+        const botStatusSpan = document.getElementById('botStatus');
+        const respawnTimerDiv = document.getElementById('respawnTimer');
+        
+        // ----- TRẠNG THÁI GAME -----
+        let gameActive = true;
+        let health = 3;
+        let score = 0;
+        
+        // ----- Camera offset -----
+        let cameraX = 0, cameraY = 0;
+        
+        // ----- NGƯỜI CHƠI -----
+        let player = { x: MAP_W/2, y: MAP_H/2, radius: 16 };
+        const PLAYER_SPEED = 6.2;
+        
+        let mouseWorld = { x: MAP_W/2, y: MAP_H/2 };
+        let mouseInside = true;
+        
+        // ----- VẬT CẢN (Obstacles) -----
+        let obstacles = [];
+        const OBSTACLE_COUNT = 25;
+        
+        function generateObstacles() {
+            obstacles = [];
+            for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                let width = 35 + Math.random() * 45;
+                let height = 35 + Math.random() * 45;
+                let x = 100 + Math.random() * (MAP_W - width - 100);
+                let y = 100 + Math.random() * (MAP_H - height - 100);
+                
+                // Tránh spawn trùng player ban đầu
+                if (Math.hypot(x + width/2 - MAP_W/2, y + height/2 - MAP_H/2) < 150) continue;
+                
+                obstacles.push({
+                    x: x, y: y, w: width, h: height,
+                    type: Math.random() > 0.6 ? 'building' : 'wall'
+                });
+            }
+        }
+        
+        // Kiểm tra va chạm với vật cản (AABB)
+        function checkCollisionWithObstacles(entity, radius) {
+            for (let obs of obstacles) {
+                // Tìm điểm gần nhất trên AABB đến entity
+                let closestX = Math.max(obs.x, Math.min(entity.x, obs.x + obs.w));
+                let closestY = Math.max(obs.y, Math.min(entity.y, obs.y + obs.h));
+                let dx = entity.x - closestX;
+                let dy = entity.y - closestY;
+                if (dx * dx + dy * dy < radius * radius) {
+                    // Đẩy entity ra khỏi vật cản
+                    let angle = Math.atan2(dy, dx);
+                    let overlap = radius - Math.hypot(dx, dy);
+                    entity.x += Math.cos(angle) * overlap;
+                    entity.y += Math.sin(angle) * overlap;
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Kiểm tra đường thẳng đạn có va chạm với vật cản không
+        function bulletCollidesWithObstacles(bullet, prevX, prevY) {
+            for (let obs of obstacles) {
+                if (bullet.x > obs.x && bullet.x < obs.x + obs.w &&
+                    bullet.y > obs.y && bullet.y < obs.y + obs.h) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // ----- HỆ THỐNG ĐẠN -----
+        let bullets = [];
+        let botBullets = [];
+        let enemyBullets = [];
+        let explosions = [];
+        
+        const BULLET_RADIUS = 5;
+        const BULLET_SPEED = 7.2;
+        let shootTimer = 0;
+        const SHOOT_DELAY_FRAMES = 7;
+        
+        // ----- BOT ĐỒNG MINH -----
+        let supportBot = {
+            x: MAP_W/2 - 45, y: MAP_H/2 + 30, radius: 12,
+            active: true, shootTimer: 0, shootDelay: 12,
+            hp: 5, maxHp: 5
+        };
+        
+        let botRespawnTimer = 0;
+        const botRespawnCooldown = 30; // 30 giây
+        
+        // ----- ENEMY -----
+        let enemies = [];
+        let enemySpawnCooldown = 0;
+        const BASE_SPAWN_DELAY = 35;
+        
+        // Helper functions
+        function updateUI() {
+            hpSpan.innerText = health;
+            scoreSpan.innerText = score;
+            
+            if (supportBot.active) {
+                botStatusSpan.innerText = "ACTIVE";
+                botStatusSpan.style.color = "#44aaff";
+                botStatusSpan.style.animation = "none";
+                respawnTimerDiv.innerText = "🤖 BOT ACTIVE";
+                respawnTimerDiv.style.animation = "none";
+            } else {
+                botStatusSpan.innerText = "DESTROYED";
+                botStatusSpan.style.color = "#ff6666";
+                botStatusSpan.style.animation = "blink 1s infinite";
+                
+                if (botRespawnTimer > 0) {
+                    let seconds = Math.ceil(botRespawnTimer / 60);
+                    respawnTimerDiv.innerText = `⏳ RESPAWN: ${seconds}s`;
+                    respawnTimerDiv.style.animation = "countdown 1s infinite";
+                } else {
+                    respawnTimerDiv.innerText = "✅ PRESS 'R' TO RESPAWN (50)";
+                    respawnTimerDiv.style.animation = "countdown 0.5s infinite";
+                }
+            }
+        }
+        
+        function respawnBotInstant() {
+            if (!supportBot.active && score >= 50 && gameActive && health > 0) {
+                score -= 50;
+                supportBot.active = true;
+                supportBot.hp = supportBot.maxHp;
+                supportBot.x = player.x - 45;
+                supportBot.y = player.y + 30;
+                supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
+                supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
+                supportBot.shootTimer = 0;
+                botRespawnTimer = 0;
+                updateUI();
+            }
+        }
+        
+        function autoRespawnBot() {
+            if (!supportBot.active && gameActive && health > 0 && botRespawnTimer <= 0) {
+                supportBot.active = true;
+                supportBot.hp = supportBot.maxHp;
+                supportBot.x = player.x - 45;
+                supportBot.y = player.y + 30;
+                supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
+                supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
+                supportBot.shootTimer = 0;
+                updateUI();
+            }
+        }
+        
+        // SPAWN ENEMY (có bomber)
+        function spawnEnemy() {
+            if (!gameActive) return;
+            
+            let type = 'normal';
+            const rand = Math.random();
+            
+            if (score > 100) {
+                if (rand < 0.15) type = 'runner';
+                else if (rand < 0.28) type = 'tanker';
+                else if (rand < 0.38) type = 'shooter';
+                else if (rand < 0.48) type = 'bomber';
+                else type = 'normal';
+            } else if (score > 50) {
+                if (rand < 0.1) type = 'runner';
+                else if (rand < 0.2) type = 'tanker';
+                else if (rand < 0.28) type = 'shooter';
+                else if (rand < 0.36) type = 'bomber';
+                else type = 'normal';
+            } else {
+                if (rand < 0.08) type = 'runner';
+                else if (rand < 0.15) type = 'tanker';
+                else if (rand < 0.22) type = 'bomber';
+                else type = 'normal';
+            }
+            
+            let side = Math.floor(Math.random() * 4);
+            let x, y;
+            const padding = 50;
+            if (side === 0) { x = -padding; y = Math.random() * MAP_H; }
+            else if (side === 1) { x = MAP_W + padding; y = Math.random() * MAP_H; }
+            else if (side === 2) { x = Math.random() * MAP_W; y = -padding; }
+            else { x = Math.random() * MAP_W; y = MAP_H + padding; }
+            
+            let radius, speed, hp, color, points;
+            switch(type) {
+                case 'runner':
+                    radius = 8; speed = 2.4 + Math.floor(score / 500) * 0.2; hp = 1; color = '#ffaa44'; points = 15; break;
+                case 'tanker':
+                    radius = 16; speed = 0.7 + Math.floor(score / 600) * 0.1; hp = 4; color = '#aa66ff'; points = 30; break;
+                case 'shooter':
+                    radius = 11; speed = 1.0 + Math.floor(score / 500) * 0.15; hp = 2; color = '#ff44aa'; points = 20; break;
+                case 'bomber':
+                    radius = 12; speed = 0.7 + Math.floor(score / 600) * 0.1; hp = 2; color = '#ff6633'; points = 25; break;
+                default:
+                    radius = 9 + Math.random() * 5; speed = 1.2 + Math.floor(score / 400) * 0.2; hp = 1; color = `hsl(${(Date.now() * 0.5 + Math.random() * 120) % 360}, 85%, 58%)`; points = 10;
+            }
+            
+            speed = Math.min(speed, 3.2);
+            if (type === 'runner') speed = Math.min(speed, 2.8);
+            
+            let dx = player.x - x;
+            let dy = player.y - y;
+            let length = Math.hypot(dx, dy);
+            if (length < 0.001) length = 1;
+            const vx = (dx / length) * speed;
+            const vy = (dy / length) * speed;
+            
+            enemies.push({
+                x: x, y: y, vx: vx, vy: vy, r: radius,
+                type: type, hp: hp, maxHp: hp, color: color, points: points,
+                shootCooldown: 0,
+                explosionTimer: type === 'bomber' ? Math.floor(180 + Math.random() * 180) : 0
+            });
+        }
+        
+        function shootTowardsMouse() {
+            if (!gameActive) return;
+            let dx = mouseWorld.x - player.x;
+            let dy = mouseWorld.y - player.y;
+            let len = Math.hypot(dx, dy);
+            if (len < 0.001) { dx = 1; dy = 0; len = 1; }
+            const normX = dx / len;
+            const normY = dy / len;
+            
+            bullets.push({
+                x: player.x, y: player.y,
+                vx: normX * BULLET_SPEED, vy: normY * BULLET_SPEED,
+                radius: BULLET_RADIUS, damage: 1
+            });
+        }
+        
+        function shootFromBot() {
+            if (!gameActive || !supportBot.active) return;
+            if (enemies.length === 0) return;
+            
+            let closestEnemy = null;
+            let closestDist = Infinity;
+            for (let enemy of enemies) {
+                const dist = Math.hypot(enemy.x - supportBot.x, enemy.y - supportBot.y);
+                if (dist < closestDist) { closestDist = dist; closestEnemy = enemy; }
+            }
+            
+            if (closestEnemy) {
+                let dx = closestEnemy.x - supportBot.x;
+                let dy = closestEnemy.y - supportBot.y;
+                let len = Math.hypot(dx, dy);
+                if (len < 0.001) len = 1;
+                const normX = dx / len;
+                const normY = dy / len;
+                
+                botBullets.push({
+                    x: supportBot.x, y: supportBot.y,
+                    vx: normX * (BULLET_SPEED - 1), vy: normY * (BULLET_SPEED - 1),
+                    radius: BULLET_RADIUS - 1, damage: 1
+                });
+            }
+        }
+        
+        function enemyShoot(shooter) {
+            let dx = player.x - shooter.x;
+            let dy = player.y - shooter.y;
+            let len = Math.hypot(dx, dy);
+            if (len < 0.001) len = 1;
+            const normX = dx / len;
+            const normY = dy / len;
+            
+            enemyBullets.push({
+                x: shooter.x, y: shooter.y,
+                vx: normX * 3.5, vy: normY * 3.5,
+                radius: 4, damage: 1
+            });
+        }
+        
+        function updatePlayer() {
+            if (!gameActive) return;
+            let dx = mouseWorld.x - player.x;
+            let dy = mouseWorld.y - player.y;
+            let distance = Math.hypot(dx, dy);
+            
+            if (distance < 4) return;
+            
+            let moveSpeed = PLAYER_SPEED;
+            if (distance < 25) {
+                moveSpeed = PLAYER_SPEED * (distance / 25);
+                moveSpeed = Math.max(moveSpeed, 1.2);
+            }
+            
+            let move = Math.min(moveSpeed, distance);
+            let stepX = (dx / distance) * move;
+            let stepY = (dy / distance) * move;
+            
+            player.x += stepX;
+            player.y += stepY;
+            player.x = Math.min(Math.max(player.x, 20), MAP_W - 20);
+            player.y = Math.min(Math.max(player.y, 20), MAP_H - 20);
+            
+            checkCollisionWithObstacles(player, player.radius);
+        }
+        
+        function updateSupportBot() {
+            if (!gameActive) return;
+            
+            if (!supportBot.active && gameActive && health > 0) {
+                if (botRespawnTimer > 0) {
+                    botRespawnTimer--;
+                    updateUI();
+                } else if (botRespawnTimer === 0) {
+                    autoRespawnBot();
+                }
+            }
+            
+            if (!supportBot.active) {
+                updateUI();
+                return;
+            }
+            
+            const time = Date.now() / 1000;
+            const orbitRadiusX = 65;
+            const orbitRadiusY = 50;
+            
+            let targetX = player.x + Math.cos(time * 1.5) * orbitRadiusX;
+            let targetY = player.y + Math.sin(time * 1.8) * orbitRadiusY;
+            
+            targetX = Math.min(Math.max(targetX, supportBot.radius + 10), MAP_W - supportBot.radius - 10);
+            targetY = Math.min(Math.max(targetY, supportBot.radius + 10), MAP_H - supportBot.radius - 10);
+            
+            supportBot.x = supportBot.x * 0.92 + targetX * 0.08;
+            supportBot.y = supportBot.y * 0.92 + targetY * 0.08;
+            
+            supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
+            supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
+            checkCollisionWithObstacles(supportBot, supportBot.radius);
+        }
+        
+        function updateBullets() {
+            for (let i = 0; i < bullets.length; i++) {
+                let prevX = bullets[i].x, prevY = bullets[i].y;
+                bullets[i].x += bullets[i].vx;
+                bullets[i].y += bullets[i].vy;
+                if (bullets[i].x < -100 || bullets[i].x > MAP_W + 100 || bullets[i].y < -100 || bullets[i].y > MAP_H + 100 ||
+                    bulletCollidesWithObstacles(bullets[i], prevX, prevY)) {
+                    bullets.splice(i, 1); i--;
+                }
+            }
+            for (let i = 0; i < botBullets.length; i++) {
+                let prevX = botBullets[i].x, prevY = botBullets[i].y;
+                botBullets[i].x += botBullets[i].vx;
+                botBullets[i].y += botBullets[i].vy;
+                if (botBullets[i].x < -100 || botBullets[i].x > MAP_W + 100 || botBullets[i].y < -100 || botBullets[i].y > MAP_H + 100 ||
+                    bulletCollidesWithObstacles(botBullets[i], prevX, prevY)) {
+                    botBullets.splice(i, 1); i--;
+                }
+            }
+            for (let i = 0; i < enemyBullets.length; i++) {
+                let prevX = enemyBullets[i].x, prevY = enemyBullets[i].y;
+                enemyBullets[i].x += enemyBullets[i].vx;
+                enemyBullets[i].y += enemyBullets[i].vy;
+                if (enemyBullets[i].x < -100 || enemyBullets[i].x > MAP_W + 100 || enemyBullets[i].y < -100 || enemyBullets[i].y > MAP_H + 100 ||
+                    bulletCollidesWithObstacles(enemyBullets[i], prevX, prevY)) {
+                    enemyBullets.splice(i, 1); i--;
+                }
+            }
+        }
+        
+        function handleBomberExplosions() {
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (e.type === 'bomber' && e.hp > 0) {
+                    if (e.explosionTimer > 0) e.explosionTimer--;
+                    if (e.explosionTimer <= 0) {
+                        const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+                        if (distToPlayer < 75) {
+                            health -= 2;
+                            updateUI();
+                            if (health <= 0) gameActive = false;
+                        }
+                        for (let j = enemies.length-1; j >= 0; j--) {
+                            const other = enemies[j];
+                            if (other !== e && Math.hypot(other.x - e.x, other.y - e.y) < 75) {
+                                score += other.points;
+                                enemies.splice(j, 1);
+                            }
+                        }
+                        explosions.push({ x: e.x, y: e.y, timer: 20 });
+                        enemies.splice(i, 1);
+                        i--;
+                        updateUI();
+                    }
+                }
+            }
+        }
+        
+        function handleCollisionsBulletEnemy() {
+            for (let i = bullets.length-1; i >= 0; i--) {
+                const bullet = bullets[i];
+                for (let j = 0; j < enemies.length; j++) {
+                    const e = enemies[j];
+                    if (Math.hypot(bullet.x - e.x, bullet.y - e.y) < bullet.radius + e.r) {
+                        e.hp -= bullet.damage;
+                        bullets.splice(i, 1);
+                        if (e.hp <= 0) {
+                            if (e.type === 'bomber') {
+                                const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+                                if (distToPlayer < 75) {
+                                    health -= 2;
+                                    updateUI();
+                                    if (health <= 0) gameActive = false;
+                                }
+                                for (let k = enemies.length-1; k >= 0; k--) {
+                                    const other = enemies[k];
+                                    if (other !== e && Math.hypot(other.x - e.x, other.y - e.y) < 75) {
+                                        score += other.points;
+                                        enemies.splice(k, 1);
+                                    }
+                                }
+                                explosions.push({ x: e.x, y: e.y, timer: 20 });
+                            }
+                            score += e.points;
+                            enemies.splice(j, 1);
+                            updateUI();
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            for (let i = botBullets.length-1; i >= 0; i--) {
+                const bullet = botBullets[i];
+                for (let j = 0; j < enemies.length; j++) {
+                    const e = enemies[j];
+                    if (Math.hypot(bullet.x - e.x, bullet.y - e.y) < bullet.radius + e.r) {
+                        e.hp -= bullet.damage;
+                        botBullets.splice(i, 1);
+                        if (e.hp <= 0) {
+                            if (e.type === 'bomber') {
+                                const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+                                if (distToPlayer < 75) {
+                                    health -= 2;
+                                    updateUI();
+                                    if (health <= 0) gameActive = false;
+                                }
+                                for (let k = enemies.length-1; k >= 0; k--) {
+                                    const other = enemies[k];
+                                    if (other !== e && Math.hypot(other.x - e.x, other.y - e.y) < 75) {
+                                        score += other.points;
+                                        enemies.splice(k, 1);
+                                    }
+                                }
+                                explosions.push({ x: e.x, y: e.y, timer: 20 });
+                            }
+                            score += e.points;
+                            enemies.splice(j, 1);
+                            updateUI();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function handleEnemyBulletCollisions() {
+            for (let i = enemyBullets.length-1; i >= 0; i--) {
+                const bullet = enemyBullets[i];
+                if (Math.hypot(bullet.x - player.x, bullet.y - player.y) < bullet.radius + player.radius) {
+                    health--;
+                    updateUI();
+                    enemyBullets.splice(i, 1);
+                    if (health <= 0) gameActive = false;
+                    continue;
+                }
+                if (supportBot.active && Math.hypot(bullet.x - supportBot.x, bullet.y - supportBot.y) < bullet.radius + supportBot.radius) {
+                    supportBot.hp--;
+                    enemyBullets.splice(i, 1);
+                    if (supportBot.hp <= 0) {
+                        supportBot.active = false;
+                        botRespawnTimer = botRespawnCooldown * 60;
+                        updateUI();
+                    }
+                }
+            }
+        }
+        
+        function updateEnemiesAndDamage() {
+            if (!gameActive) return;
+            
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                let newX = e.x + e.vx;
+                let newY = e.y + e.vy;
+                e.x = newX; e.y = newY;
+                checkCollisionWithObstacles(e, e.r);
+                
+                if (e.type === 'shooter') {
+                    if (e.shootCooldown <= 0) {
+                        enemyShoot(e);
+                        e.shootCooldown = 80;
+                    } else {
+                        e.shootCooldown--;
+                    }
+                }
+                
+                if (e.type === 'runner') {
+                    const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+                    if (distToPlayer < player.radius + e.r) {
+                        const angle = Math.atan2(player.y - e.y, player.x - e.x);
+                        const pushForce = 14;
+                        player.x += Math.cos(angle) * pushForce;
+                        player.y += Math.sin(angle) * pushForce;
+                        player.x = Math.min(Math.max(player.x, 20), MAP_W - 20);
+                        player.y = Math.min(Math.max(player.y, 20), MAP_H - 20);
+                        e.x -= Math.cos(angle) * 10;
+                        e.y -= Math.sin(angle) * 10;
+                        continue;
+                    }
+                } else {
+                    if (Math.hypot(player.x - e.x, player.y - e.y) < player.radius + e.r) {
+                        health--;
+                        updateUI();
+                        enemies.splice(i, 1);
+                        i--;
+                        if (health <= 0) gameActive = false;
+                        continue;
+                    }
+                }
+                
+                if (supportBot.active && Math.hypot(supportBot.x - e.x, supportBot.y - e.y) < supportBot.radius + e.r) {
+                    supportBot.hp--;
+                    const angle = Math.atan2(e.y - supportBot.y, e.x - supportBot.x);
+                    supportBot.x -= Math.cos(angle) * 16;
+                    supportBot.y -= Math.sin(angle) * 16;
+                    supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
+                    supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
+                    
+                    if (supportBot.hp <= 0) {
+                        supportBot.active = false;
+                        botRespawnTimer = botRespawnCooldown * 60;
+                        updateUI();
+                    }
+                    enemies.splice(i, 1);
+                    i--;
+                    continue;
+                }
+                
+                if (e.x < -200 || e.x > MAP_W + 200 || e.y < -200 || e.y > MAP_H + 200) {
+                    enemies.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+        
+        function updateSpawning() {
+            if (!gameActive) return;
+            if (enemySpawnCooldown <= 0) {
+                spawnEnemy();
+                if (score > 200 && Math.random() < 0.3) spawnEnemy();
+                if (score > 450 && Math.random() < 0.2) spawnEnemy();
+                enemySpawnCooldown = Math.max(20, BASE_SPAWN_DELAY - Math.floor(score / 250));
+                enemySpawnCooldown = Math.min(enemySpawnCooldown, 40);
+            } else {
+                enemySpawnCooldown--;
+            }
+        }
+        
+        function updateAutoShoot() {
+            if (!gameActive) return;
+            if (shootTimer <= 0) {
+                shootTowardsMouse();
+                shootTimer = SHOOT_DELAY_FRAMES;
+            } else {
+                shootTimer--;
+            }
+        }
+        
+        function updateBotShoot() {
+            if (!gameActive || !supportBot.active) return;
+            if (supportBot.shootTimer <= 0) {
+                shootFromBot();
+                supportBot.shootTimer = supportBot.shootDelay;
+            } else {
+                supportBot.shootTimer--;
+            }
+        }
+        
+        // Cập nhật camera
+        function updateCamera() {
+            cameraX = player.x - CAM_W/2;
+            cameraY = player.y - CAM_H/2;
+            cameraX = Math.min(Math.max(cameraX, 0), MAP_W - CAM_W);
+            cameraY = Math.min(Math.max(cameraY, 0), MAP_H - CAM_H);
+        }
+        
+        // Hàm chuyển đổi tọa độ thế giới sang màn hình
+        function toScreenX(worldX) { return worldX - cameraX; }
+        function toScreenY(worldY) { return worldY - cameraY; }
+        
+        // ========== VẼ ==========
+        function drawMap() {
+            ctx.fillStyle = "#030e03";
+            ctx.fillRect(0, 0, CAM_W, CAM_H);
+            
+            // Grid
+            ctx.strokeStyle = "#0f3f1a";
+            ctx.lineWidth = 1;
+            for (let x = Math.floor(cameraX/50)*50; x < cameraX + CAM_W; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(toScreenX(x), 0);
+                ctx.lineTo(toScreenX(x), CAM_H);
+                ctx.stroke();
+            }
+            for (let y = Math.floor(cameraY/50)*50; y < cameraY + CAM_H; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, toScreenY(y));
+                ctx.lineTo(CAM_W, toScreenY(y));
+                ctx.stroke();
+            }
+        }
+        
+        function drawObstacles() {
+            for (let obs of obstacles) {
+                let screenX = toScreenX(obs.x);
+                let screenY = toScreenY(obs.y);
+                if (screenX + obs.w < 0 || screenX > CAM_W || screenY + obs.h < 0 || screenY > CAM_H) continue;
+                
+                ctx.fillStyle = obs.type === 'building' ? '#4a6a3a' : '#5a5a4a';
+                ctx.fillRect(screenX, screenY, obs.w, obs.h);
+                ctx.strokeStyle = "#8aba6a";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(screenX, screenY, obs.w, obs.h);
+                
+                if (obs.type === 'building') {
+                    ctx.fillStyle = "#ffcc88";
+                    for (let i = 0; i < 3; i++) {
+                        ctx.fillRect(screenX + 5 + i*12, screenY + 5, 4, 6);
+                    }
+                }
+            }
+        }
+        
+        function drawPlayer() {
+            const angle = Math.atan2(mouseWorld.y - player.y, mouseWorld.x - player.x);
+            ctx.save();
+            ctx.translate(toScreenX(player.x), toScreenY(player.y));
+            ctx.rotate(angle);
+            ctx.shadowColor = "#0fef0f";
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(0, 0, player.radius + 2, 0, Math.PI * 2);
+            ctx.strokeStyle = "#73ff73";
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+            ctx.fillStyle = "#b3ffb3";
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.moveTo(18, 0);
+            ctx.lineTo(-10, -11);
+            ctx.lineTo(-10, 11);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = "#f9f9a3";
+            ctx.beginPath();
+            ctx.arc(4, 0, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        
+        function drawSupportBot() {
+            if (!supportBot.active) {
+                ctx.save();
+                ctx.translate(toScreenX(supportBot.x), toScreenY(supportBot.y));
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.arc(0, 0, supportBot.radius, 0, Math.PI * 2);
+                ctx.fillStyle = "#666666";
+                ctx.fill();
+                ctx.fillStyle = "#ff4444";
+                ctx.font = "bold 16px monospace";
+                ctx.fillText("💀", -8, -8);
+                if (botRespawnTimer > 0) {
+                    let seconds = Math.ceil(botRespawnTimer / 60);
+                    ctx.font = "bold 10px monospace";
+                    ctx.fillStyle = "#ffaa66";
+                    ctx.fillText(`${seconds}s`, -12, 18);
+                }
+                ctx.globalAlpha = 1;
+                ctx.restore();
+                return;
+            }
+            
+            ctx.save();
+            ctx.translate(toScreenX(supportBot.x), toScreenY(supportBot.y));
+            ctx.shadowColor = "#44aaff";
+            ctx.shadowBlur = 10;
+            const hpPercent = supportBot.hp / supportBot.maxHp;
+            ctx.fillStyle = "#ff3333";
+            ctx.fillRect(-supportBot.radius - 2, -supportBot.radius - 8, (supportBot.radius * 2 + 4) * hpPercent, 4);
+            ctx.beginPath();
+            ctx.arc(0, 0, supportBot.radius + 1, 0, Math.PI * 2);
+            ctx.fillStyle = "#44aaff44";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(0, 0, supportBot.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#3399ff";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(0, 0, supportBot.radius - 3, 0, Math.PI * 2);
+            ctx.fillStyle = "#55ccff";
+            ctx.fill();
+            const angleToPlayer = Math.atan2(player.y - supportBot.y, player.x - supportBot.x);
+            const eyeX = Math.cos(angleToPlayer) * (supportBot.radius * 0.5);
+            const eyeY = Math.sin(angleToPlayer) * (supportBot.radius * 0.5);
+            ctx.beginPath();
+            ctx.arc(eyeX, eyeY, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = "white";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(eyeX + Math.cos(angleToPlayer) * 1.5, eyeY + Math.sin(angleToPlayer) * 1.5, 1.2, 0, Math.PI * 2);
+            ctx.fillStyle = "#004466";
+            ctx.fill();
+            for (let i = 0; i < 3; i++) {
+                const angle = Date.now() / 200 + i * Math.PI * 2 / 3;
+                const xOff = Math.cos(angle) * (supportBot.radius + 3);
+                const yOff = Math.sin(angle) * (supportBot.radius + 3);
+                ctx.beginPath();
+                ctx.arc(xOff, yOff, 2, 0, Math.PI * 2);
+                ctx.fillStyle = "#88ddff";
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+        
+        function drawBullets() {
+            for (let b of bullets) {
+                ctx.beginPath();
+                ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2);
+                ctx.fillStyle = "#ffec80";
+                ctx.shadowBlur = 9;
+                ctx.fill();
+            }
+            for (let b of botBullets) {
+                ctx.beginPath();
+                ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2);
+                ctx.fillStyle = "#88ccff";
+                ctx.fill();
+            }
+            for (let b of enemyBullets) {
+                ctx.beginPath();
+                ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2);
+                ctx.fillStyle = "#ff6688";
+                ctx.fill();
+            }
+        }
+        
+        function drawEnemies() {
+            for (let e of enemies) {
+                let screenX = toScreenX(e.x);
+                let screenY = toScreenY(e.y);
+                if (screenX + e.r < 0 || screenX - e.r > CAM_W || screenY + e.r < 0 || screenY - e.r > CAM_H) continue;
+                
+                ctx.shadowBlur = 8;
+                if (e.type === 'tanker' && e.maxHp > 1) {
+                    const hpPercent = e.hp / e.maxHp;
+                    ctx.fillStyle = "#ff3333";
+                    ctx.fillRect(screenX - e.r - 2, screenY - e.r - 6, (e.r * 2 + 4) * hpPercent, 4);
+                }
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, e.r, 0, Math.PI*2);
+                ctx.fillStyle = e.color;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, e.r-2.5, 0, Math.PI*2);
+                ctx.fillStyle = e.type === 'runner' ? '#ff8800' : (e.type === 'tanker' ? '#8844ff' : (e.type === 'shooter' ? '#ff44aa' : (e.type === 'bomber' ? '#ff5533' : '#ff1a4f')));
+                ctx.fill();
+                
+                ctx.font = `${e.r - 4}px monospace`;
+                ctx.fillStyle = "white";
+                if (e.type === 'runner') ctx.fillText("⚡", screenX - 5, screenY + 5);
+                else if (e.type === 'tanker') ctx.fillText("🛡️", screenX - 6, screenY + 5);
+                else if (e.type === 'shooter') ctx.fillText("🔫", screenX - 5, screenY + 5);
+                else if (e.type === 'bomber') ctx.fillText("💣", screenX - 5, screenY + 5);
+            }
+        }
+        
+        function drawExplosions() {
+            for (let i = 0; i < explosions.length; i++) {
+                const exp = explosions[i];
+                const alpha = exp.timer / 20;
+                ctx.beginPath();
+                ctx.arc(toScreenX(exp.x), toScreenY(exp.y), 75 * (1 - alpha), 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 50, 0, ${0.6 * alpha})`;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(toScreenX(exp.x), toScreenY(exp.y), 40 * (1 - alpha), 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 100, 0, ${0.8 * alpha})`;
+                ctx.fill();
+                ctx.font = `${25 + (15 * (1 - alpha))}px monospace`;
+                ctx.fillStyle = `rgba(255, 200, 0, ${alpha})`;
+                ctx.fillText("💥", toScreenX(exp.x) - 20, toScreenY(exp.y) - 20);
+                
+                exp.timer--;
+                if (exp.timer <= 0) explosions.splice(i, 1);
+            }
+        }
+        
+        function drawMouseTarget() {
+            if (!mouseInside) return;
+            let screenX = toScreenX(mouseWorld.x);
+            let screenY = toScreenY(mouseWorld.y);
+            if (screenX < 0 || screenX > CAM_W || screenY < 0 || screenY > CAM_H) return;
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 8, 0, Math.PI * 2);
+            ctx.strokeStyle = "#88ff88";
+            ctx.lineWidth = 2.2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, 3, 0, Math.PI * 2);
+            ctx.fillStyle = "#ccffcc88";
+            ctx.fill();
+        }
+        
+        function drawUItext() {
+            ctx.font = "bold 12px monospace";
+            ctx.fillStyle = "#aaffaa88";
+            ctx.fillText(`🏃 RUNNER (ĐẨY) | 🛡️ TANKER | 🔫 SHOOTER (CHẬM) | 💣 BOMBER (NỔ) | 🧱 OBSTACLES`, 15, 30);
+            ctx.fillStyle = "#88dd88";
+            ctx.fillText(`⚡ PRESS 'R' RESPAWN BOT (50) | MAP: ${Math.floor(player.x)}/${MAP_W}, ${Math.floor(player.y)}/${MAP_H}`, 15, 55);
+            ctx.font = "bold 13px monospace";
+            ctx.fillStyle = "#80ffaa";
+            ctx.fillText(`ENEMIES: ${enemies.length}`, CAM_W-120, 30);
+        }
+        
+        function drawGameOverlay() {
+            if (!gameActive && health <= 0) {
+                ctx.font = "bold 34px 'Courier New', monospace";
+                ctx.fillStyle = "#ff3366";
+                ctx.fillText("GAME OVER", CAM_W/2-120, CAM_H/2-45);
+                ctx.font = "18px monospace";
+                ctx.fillStyle = "#88dd88";
+                ctx.fillText(`FINAL SCORE: ${score}`, CAM_W/2-85, CAM_H/2+15);
+                return true;
+            }
+            return false;
+        }
+        
+        // ========== VÒNG LẶP CHÍNH ==========
+        function gameLoop() {
+            if (gameActive && health > 0) {
+                updatePlayer();
+                updateSupportBot();
+                updateAutoShoot();
+                updateBotShoot();
+                updateBullets();
+                updateEnemiesAndDamage();
+                handleCollisionsBulletEnemy();
+                handleEnemyBulletCollisions();
+                handleBomberExplosions();
+                updateSpawning();
+                updateCamera();
+                
+                if (health <= 0) {
+                    gameActive = false;
+                    updateUI();
+                }
+            }
+            
+            drawMap();
+            drawObstacles();
+            drawBullets();
+            drawEnemies();
+            drawSupportBot();
+            drawPlayer();
+            drawExplosions();
+            drawMouseTarget();
+            drawUItext();
+            drawGameOverlay();
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // ========== SỰ KIỆN ==========
+        function onMouseMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = CAM_W / rect.width;
+            const scaleY = CAM_H / rect.height;
+            let screenX = (e.clientX - rect.left) * scaleX;
+            let screenY = (e.clientY - rect.top) * scaleY;
+            mouseWorld.x = cameraX + screenX;
+            mouseWorld.y = cameraY + screenY;
+            mouseWorld.x = Math.min(Math.max(mouseWorld.x, 0), MAP_W);
+            mouseWorld.y = Math.min(Math.max(mouseWorld.y, 0), MAP_H);
+            mouseInside = true;
+        }
+        
+        function onMouseLeave() { mouseInside = false; }
+        function onMouseEnter(e) {
+            mouseInside = true;
+            onMouseMove(e);
+        }
+        
+        function onKeyDown(e) {
+            if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                respawnBotInstant();
+            }
+        }
+        
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mouseleave', onMouseLeave);
+        canvas.addEventListener('mouseenter', onMouseEnter);
+        window.addEventListener('keydown', onKeyDown);
+        
+        function initGame() {
+            gameActive = true;
+            health = 3;
+            score = 0;
+            bullets = [];
+            botBullets = [];
+            enemyBullets = [];
+            explosions = [];
+            enemies = [];
+            player.x = MAP_W/2; player.y = MAP_H/2;
+            supportBot.active = true;
+            supportBot.hp = supportBot.maxHp;
+            supportBot.x = MAP_W/2 - 45; supportBot.y = MAP_H/2 + 30;
+            mouseWorld.x = MAP_W/2; mouseWorld.y = MAP_H/2;
+            shootTimer = 0;
+            supportBot.shootTimer = 0;
+            enemySpawnCooldown = 10;
+            botRespawnTimer = 0;
+            generateObstacles();
+            updateCamera();
+            for(let i=0; i<3; i++) spawnEnemy();
+            updateUI();
+        }
+        
+        initGame();
+        gameLoop();
+    })();
+</script>
+</body>
+</html>
