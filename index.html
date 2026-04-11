@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vector Field: Fortress Defense | Tactical Mode</title>
+    <title>Vector Field: Fortress Defense | Fixed + Buffed</title>
     <style>
         * { user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
@@ -122,9 +122,9 @@
         <div class="respawn-timer" id="respawnTimer">🤖 RESPAWN IN: --s</div>
         <div class="respawn-hint">🎮 <kbd>R</kbd> - RESPAWN BOT (50)</div>
     </div>
-    <div class="status">⚡ FORTRESS DEFENSE | CLICK LOCK MOVEMENT | DOUBLE CLICK FORT ⚡</div>
+    <div class="status">⚡ FORTRESS DEFENSE | HP 20 | RAPID FIRE ⚡</div>
     <div class="stats-panel">
-        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e;">5</span>&nbsp;&nbsp;|&nbsp;
+        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e;">20</span>&nbsp;&nbsp;|&nbsp;
         🎯 SCORE: <span id="scoreDisplay">0</span>&nbsp;&nbsp;|&nbsp;
         🤖 BOT: <span id="botStatus" style="color:#44aaff;">ACTIVE</span>&nbsp;&nbsp;|&nbsp;
         🧱 FORTS: <span id="fortCount">0</span>
@@ -153,7 +153,7 @@
         const lockIndicator = document.getElementById('lockIndicator');
         
         let gameActive = true;
-        let health = 5;
+        let health = 20; // Tăng lên 20 HP
         let score = 0;
         let cameraX = 0, cameraY = 0;
         
@@ -162,7 +162,7 @@
         const PLAYER_SPEED = 6.2;
         let mouseWorld = { x: MAP_W/2, y: MAP_H/2 };
         let mouseInside = true;
-        let movementLocked = false; // Khoá di chuyển
+        let movementLocked = false;
         
         // ----- CÔNG SỰ (FORT) -----
         let forts = [];
@@ -186,12 +186,12 @@
         let explosions = [];
         const BULLET_RADIUS = 5, BULLET_SPEED = 7.2;
         let shootTimer = 0;
-        const SHOOT_DELAY_FRAMES = 7;
+        const SHOOT_DELAY_FRAMES = 4; // Tăng tốc bắn: 7 -> 4
         
         // ----- BOT ĐỒNG MINH -----
         let supportBot = {
             x: MAP_W/2 - 45, y: MAP_H/2 + 30, radius: 12,
-            active: true, shootTimer: 0, shootDelay: 8, // Tăng tốc bắn: 12 -> 8
+            active: true, shootTimer: 0, shootDelay: 8,
             hp: 5, maxHp: 5,
             healTimer: 0, healDelay: 600,
             selfHealTimer: 0, selfHealDelay: 480
@@ -218,7 +218,25 @@
             }
         }
         
-        // Kiểm tra va chạm với vật cản (chỉ cho enemy, player đi qua được)
+        // ========== KIỂM TRA VA CHẠM ==========
+        // Player bị chặn bởi obstacles (đã fix)
+        function checkCollisionWithObstaclesForPlayer(entity, radius) {
+            for (let obs of obstacles) {
+                let closestX = Math.max(obs.x, Math.min(entity.x, obs.x + obs.w));
+                let closestY = Math.max(obs.y, Math.min(entity.y, obs.y + obs.h));
+                let dx = entity.x - closestX, dy = entity.y - closestY;
+                if (dx * dx + dy * dy < radius * radius) {
+                    let angle = Math.atan2(dy, dx);
+                    let overlap = radius - Math.hypot(dx, dy);
+                    entity.x += Math.cos(angle) * overlap;
+                    entity.y += Math.sin(angle) * overlap;
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Enemy bị chặn bởi obstacles
         function checkCollisionWithObstaclesForEnemy(entity, radius) {
             for (let obs of obstacles) {
                 let closestX = Math.max(obs.x, Math.min(entity.x, obs.x + obs.w));
@@ -235,7 +253,7 @@
             return false;
         }
         
-        // Kiểm tra va chạm với công sự (chỉ cho enemy, player đi qua được)
+        // Enemy bị chặn bởi công sự
         function checkCollisionWithFortsForEnemy(entity, radius) {
             for (let fort of forts) {
                 if (!fort.active) continue;
@@ -253,13 +271,23 @@
             return false;
         }
         
-        function bulletCollidesWithObstacles(bullet, prevX, prevY) {
+        // Kiểm tra đạn có va chạm với vật cản không
+        // Player đạn XUYÊN QUA công sự (không bị chặn), nhưng bị chặn bởi obstacles tự nhiên
+        function bulletCollidesWithObstacles(bullet, isPlayerBullet) {
+            // Đạn player xuyên qua công sự, nhưng bị chặn bởi obstacles tự nhiên
             for (let obs of obstacles) {
-                if (bullet.x > obs.x && bullet.x < obs.x + obs.w && bullet.y > obs.y && bullet.y < obs.y + obs.h) return true;
+                if (bullet.x > obs.x && bullet.x < obs.x + obs.w && bullet.y > obs.y && bullet.y < obs.y + obs.h) {
+                    return true;
+                }
             }
-            for (let fort of forts) {
-                if (!fort.active) continue;
-                if (bullet.x > fort.x && bullet.x < fort.x + fort.w && bullet.y > fort.y && bullet.y < fort.y + fort.h) return true;
+            // Đạn enemy bị chặn bởi công sự (đã fix)
+            if (!isPlayerBullet) {
+                for (let fort of forts) {
+                    if (!fort.active) continue;
+                    if (bullet.x > fort.x && bullet.x < fort.x + fort.w && bullet.y > fort.y && bullet.y < fort.y + fort.h) {
+                        return true;
+                    }
+                }
             }
             return false;
         }
@@ -269,7 +297,6 @@
             if (!gameActive) return false;
             if (score < FORT_COST) return false;
             
-            // Đặt công sự tại vị trí chuột (world)
             let fortX = mouseWorld.x - 30;
             let fortY = mouseWorld.y - 30;
             let fortW = 60;
@@ -286,6 +313,13 @@
                 if (Math.abs(f.x - fortX) < f.w && Math.abs(f.y - fortY) < f.h) return false;
             }
             
+            // Không đặt trùng lên obstacles
+            for (let obs of obstacles) {
+                if (fortX < obs.x + obs.w && fortX + fortW > obs.x && fortY < obs.y + obs.h && fortY + fortH > obs.y) {
+                    return false;
+                }
+            }
+            
             score -= FORT_COST;
             forts.push({
                 x: fortX, y: fortY, w: fortW, h: fortH,
@@ -297,7 +331,7 @@
         
         // ========== HỒI MÁU ==========
         function healPlayer() {
-            if (health < 5) {
+            if (health < 20) {
                 health++;
                 updateUI();
                 healEffects.push({ x: player.x, y: player.y, timer: 20 });
@@ -385,7 +419,7 @@
             if (!gameActive) return;
             
             if (shouldSpawnSquad()) {
-                spawnShooterPair(); // Đôi shooter thay vì 4
+                spawnShooterPair();
                 return;
             }
             
@@ -393,7 +427,7 @@
             const rand = Math.random();
             
             if (score > 100) {
-                if (rand < 0.08) type = 'runner'; // Giảm runner 15% -> 8%
+                if (rand < 0.08) type = 'runner';
                 else if (rand < 0.25) type = 'tanker';
                 else if (rand < 0.38) type = 'shooter';
                 else if (rand < 0.48) type = 'bomber';
@@ -424,7 +458,6 @@
             else if (side === 2) { baseX = Math.random() * MAP_W; baseY = -padding; }
             else { baseX = Math.random() * MAP_W; baseY = MAP_H + padding; }
             
-            // Chỉ 2 shooter thay vì 4
             const offsets = [[-30, -20], [30, 20]];
             
             for (let i = 0; i < 2; i++) {
@@ -526,7 +559,6 @@
         function updatePlayer() {
             if (!gameActive) return;
             
-            // Nếu khoá di chuyển, không cập nhật vị trí player
             if (movementLocked) return;
             
             let dx = mouseWorld.x - player.x, dy = mouseWorld.y - player.y;
@@ -539,7 +571,9 @@
             player.y += (dy / distance) * move;
             player.x = Math.min(Math.max(player.x, 20), MAP_W - 20);
             player.y = Math.min(Math.max(player.y, 20), MAP_H - 20);
-            // Player không bị chặn bởi công sự và vật cản tự nhiên
+            
+            // Player bị chặn bởi obstacles (đã fix)
+            checkCollisionWithObstaclesForPlayer(player, player.radius);
         }
         
         function updateSupportBot() {
@@ -577,7 +611,6 @@
             supportBot.y = supportBot.y * 0.92 + targetY * 0.08;
             supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
             supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
-            // Bot bị chặn bởi vật cản và công sự
             checkCollisionWithObstaclesForEnemy(supportBot, supportBot.radius);
             checkCollisionWithFortsForEnemy(supportBot, supportBot.radius);
         }
@@ -613,8 +646,9 @@
                 let prevX = bullets[i].x, prevY = bullets[i].y;
                 bullets[i].x += bullets[i].vx;
                 bullets[i].y += bullets[i].vy;
+                // Đạn player: isPlayerBullet = true (xuyên qua công sự)
                 if (bullets[i].x < -100 || bullets[i].x > MAP_W + 100 || bullets[i].y < -100 || bullets[i].y > MAP_H + 100 ||
-                    bulletCollidesWithObstacles(bullets[i], prevX, prevY)) {
+                    bulletCollidesWithObstacles(bullets[i], true)) {
                     bullets.splice(i, 1); i--;
                 }
             }
@@ -623,7 +657,7 @@
                 botBullets[i].x += botBullets[i].vx;
                 botBullets[i].y += botBullets[i].vy;
                 if (botBullets[i].x < -100 || botBullets[i].x > MAP_W + 100 || botBullets[i].y < -100 || botBullets[i].y > MAP_H + 100 ||
-                    bulletCollidesWithObstacles(botBullets[i], prevX, prevY)) {
+                    bulletCollidesWithObstacles(botBullets[i], false)) {
                     botBullets.splice(i, 1); i--;
                 }
             }
@@ -631,8 +665,9 @@
                 let prevX = enemyBullets[i].x, prevY = enemyBullets[i].y;
                 enemyBullets[i].x += enemyBullets[i].vx;
                 enemyBullets[i].y += enemyBullets[i].vy;
+                // Đạn enemy bị chặn bởi công sự (đã fix)
                 if (enemyBullets[i].x < -100 || enemyBullets[i].x > MAP_W + 100 || enemyBullets[i].y < -100 || enemyBullets[i].y > MAP_H + 100 ||
-                    bulletCollidesWithObstacles(enemyBullets[i], prevX, prevY)) {
+                    bulletCollidesWithObstacles(enemyBullets[i], false)) {
                     enemyBullets.splice(i, 1); i--;
                 }
             }
@@ -664,7 +699,6 @@
                 updateUI();
                 if (health <= 0) gameActive = false;
             }
-            // Phá hủy công sự trong vùng nổ
             for (let f of forts) {
                 if (!f.active) continue;
                 const distToFort = Math.hypot((bomber.x - (f.x + f.w/2)), (bomber.y - (f.y + f.h/2)));
@@ -807,7 +841,7 @@
                         updateUI();
                     }
                 }
-                // Đạn bắn trúng công sự
+                // Đạn enemy bắn trúng công sự (đã fix - bị chặn ở trên rồi, nhưng vẫn check damage)
                 for (let f of forts) {
                     if (!f.active) continue;
                     if (bullet.x > f.x && bullet.x < f.x + f.w && bullet.y > f.y && bullet.y < f.y + f.h) {
@@ -830,7 +864,7 @@
                 let newX = e.x + e.vx, newY = e.y + e.vy;
                 e.x = newX; e.y = newY;
                 checkCollisionWithObstaclesForEnemy(e, e.r);
-                checkCollisionWithFortsForEnemy(e, e.r); // Enemy bị chặn bởi công sự
+                checkCollisionWithFortsForEnemy(e, e.r);
                 
                 if (e.type === 'shooter') {
                     if (e.shootCooldown <= 0) {
@@ -849,6 +883,7 @@
                         player.y += Math.sin(angle) * 14;
                         player.x = Math.min(Math.max(player.x, 20), MAP_W - 20);
                         player.y = Math.min(Math.max(player.y, 20), MAP_H - 20);
+                        checkCollisionWithObstaclesForPlayer(player, player.radius);
                         e.x -= Math.cos(angle) * 10;
                         e.y -= Math.sin(angle) * 10;
                         continue;
@@ -864,7 +899,6 @@
                     }
                 }
                 
-                // Enemy tấn công công sự (ưu tiên)
                 let attackedFort = false;
                 for (let f of forts) {
                     if (!f.active) continue;
@@ -1027,14 +1061,12 @@
                 let screenX = toScreenX(fort.x), screenY = toScreenY(fort.y);
                 if (screenX + fort.w < 0 || screenX > CAM_W || screenY + fort.h < 0 || screenY > CAM_H) continue;
                 
-                // Vẽ công sự
                 ctx.fillStyle = "#8B6914";
                 ctx.fillRect(screenX, screenY, fort.w, fort.h);
                 ctx.strokeStyle = "#DAA520";
                 ctx.lineWidth = 2;
                 ctx.strokeRect(screenX, screenY, fort.w, fort.h);
                 
-                // Vẽ mái
                 ctx.beginPath();
                 ctx.moveTo(screenX, screenY);
                 ctx.lineTo(screenX + fort.w/2, screenY - 15);
@@ -1042,12 +1074,10 @@
                 ctx.fillStyle = "#B8860B";
                 ctx.fill();
                 
-                // Thanh máu
                 const hpPercent = fort.hp / fort.maxHp;
                 ctx.fillStyle = "#ff3333";
                 ctx.fillRect(screenX, screenY - 8, fort.w * hpPercent, 4);
                 
-                // Cửa sổ
                 ctx.fillStyle = "#FFD700";
                 ctx.fillRect(screenX + 10, screenY + 15, 15, 15);
                 ctx.fillRect(screenX + fort.w - 25, screenY + 15, 15, 15);
@@ -1079,7 +1109,6 @@
             ctx.fill();
             ctx.restore();
             
-            // Vẽ indicator khoá di chuyển
             if (movementLocked) {
                 ctx.beginPath();
                 ctx.arc(toScreenX(player.x), toScreenY(player.y) - 20, 10, 0, Math.PI * 2);
@@ -1283,7 +1312,6 @@
             ctx.fillStyle = "#ccffcc88";
             ctx.fill();
             
-            // Hiển thị giá đặt công sự
             if (score >= FORT_COST) {
                 ctx.beginPath();
                 ctx.rect(screenX - 30, screenY - 30, 60, 60);
@@ -1298,9 +1326,9 @@
         function drawUItext() {
             ctx.font = "bold 12px monospace";
             ctx.fillStyle = "#aaffaa88";
-            ctx.fillText(`🏃 RUNNER (ÍT) | 🛡️ TANKER | 🔫 SHOOTER (ĐÔI@700+) | 💣 BOMBER (160px,4DMG) | 🧱 FORT (15HP)`, 15, 30);
+            ctx.fillText(`🏃 RUNNER (ÍT) | 🛡️ TANKER | 🔫 SHOOTER (ĐÔI@700+) | 💣 BOMBER (160px,4DMG) | 🧱 FORT (15HP) | 🔫 RAPID FIRE`, 15, 30);
             ctx.fillStyle = "#88dd88";
-            ctx.fillText(`⚡ R: RESPAWN BOT (50) | CLICK: KHOÁ/TẮT KHOÁ | DOUBLE CLICK: ĐẶT FORT (30)`, 15, 55);
+            ctx.fillText(`⚡ R: RESPAWN BOT (50) | CLICK: KHOÁ/TẮT KHOÁ | DOUBLE CLICK: ĐẶT FORT (30) | HP: ${health}/20`, 15, 55);
             ctx.font = "bold 13px monospace";
             ctx.fillStyle = "#80ffaa";
             ctx.fillText(`ENEMIES: ${enemies.length}`, CAM_W-120, 30);
@@ -1402,11 +1430,9 @@
             e.preventDefault();
             const now = Date.now();
             if (now - lastClickTime < DOUBLE_CLICK_DELAY) {
-                // Double click - đặt công sự
                 tryPlaceFort();
                 lastClickTime = 0;
             } else {
-                // Single click - khoá/tắt khoá di chuyển
                 movementLocked = !movementLocked;
                 updateUI();
                 lastClickTime = now;
@@ -1428,7 +1454,7 @@
         
         function initGame() {
             gameActive = true;
-            health = 5;
+            health = 20;
             score = 0;
             bullets = [];
             botBullets = [];
