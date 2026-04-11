@@ -128,7 +128,7 @@
         🧱 FORTS: <span id="fortCount">0</span><span id="fortLimit" style="font-size:10px;color:#aaa;">/10</span>
     </div>
     <div class="instruction">
-        🖱️ CLICK TRÁI: KHOÁ/TẮT KHOÁ DI CHUYỂN | DOUBLE CLICK: ĐẶT CÔNG SỰ (30 ĐIỂM, MAX 10) | 🌀 TELEPORTER SPAWN BOMBER!
+        🖱️ CLICK TRÁI: KHOÁ/TẮT KHOÁ DI CHUYỂN | DOUBLE CLICK: ĐẶT CÔNG SỰ (30 ĐIỂM, MAX 10) | 🌀 TELEPORTER SPAWN BOMBER! | 💥 BOOM SHOOTER MỚI!
     </div>
 </div>
 
@@ -155,7 +155,6 @@
         let health = 20;
         let score = 0;
         let cameraX = 0, cameraY = 0;
-        let frameSkip = 0;
         
         // NGƯỜI CHƠI
         let player = { x: MAP_W/2, y: MAP_H/2, radius: 16 };
@@ -164,7 +163,7 @@
         let mouseInside = true;
         let movementLocked = false;
         
-        // CÔNG SỰ (FORT) - GIỚI HẠN 10
+        // CÔNG SỰ
         let forts = [];
         const MAX_FORTS = 10;
         let lastClickTime = 0;
@@ -178,12 +177,12 @@
         let teleportCooldown = 0;
         const TELEPORT_INTERVAL = 450;
         
-        // VẬT CẢN
+        // VẬT CẢN - TĂNG LÊN 25
         let obstacles = [];
-        const OBSTACLE_COUNT = 18;
+        const OBSTACLE_COUNT = 25;
         
-        // ĐẠN - mỗi đạn enemy có thuộc tính shooterId để xóa khi shooter chết
-        let bullets = [], botBullets = [], enemyBullets = [];
+        // ĐẠN
+        let bullets = [], botBullets = [], enemyBullets = [], boomBullets = [];
         let explosions = [];
         const BULLET_RADIUS = 5, BULLET_SPEED = 7.2;
         let shootTimer = 0;
@@ -193,10 +192,10 @@
         // BOT ĐỒNG MINH
         let supportBot = {
             x: MAP_W/2 - 45, y: MAP_H/2 + 30, radius: 12,
-            active: true, shootTimer: 0, shootDelay: 8,
+            active: true, shootTimer: 0, shootDelay: 7,
             hp: 5, maxHp: 5,
-            healTimer: 0, healDelay: 600,
-            selfHealTimer: 0, selfHealDelay: 480
+            healTimer: 0, healDelay: 550,
+            selfHealTimer: 0, selfHealDelay: 450
         };
         
         let botRespawnTimer = 0;
@@ -205,16 +204,18 @@
         // ENEMY
         let enemies = [];
         let enemySpawnCooldown = 0;
-        const BASE_SPAWN_DELAY = 40;
+        const MAX_ENEMIES = 40;
+        const RESPAWN_THRESHOLD = 25; // SPAWN KHI < 25
+        const BASE_SPAWN_DELAY = 50;
         
         // KHỞI TẠO MAP
         function generateObstacles() {
             obstacles = [];
             for (let i = 0; i < OBSTACLE_COUNT; i++) {
-                let width = 35 + Math.random() * 45;
-                let height = 35 + Math.random() * 45;
-                let x = 100 + Math.random() * (MAP_W - width - 100);
-                let y = 100 + Math.random() * (MAP_H - height - 100);
+                let width = 35 + Math.random() * 50;
+                let height = 35 + Math.random() * 50;
+                let x = 80 + Math.random() * (MAP_W - width - 80);
+                let y = 80 + Math.random() * (MAP_H - height - 80);
                 if (Math.hypot(x + width/2 - MAP_W/2, y + height/2 - MAP_H/2) < 150) continue;
                 obstacles.push({ x: x, y: y, w: width, h: height, type: Math.random() > 0.6 ? 'building' : 'wall' });
             }
@@ -253,6 +254,22 @@
                 }
             }
             return false;
+        }
+        
+        // Tìm obstacle gần nhất để núp
+        function findNearestObstacle(x, y) {
+            let nearest = null;
+            let minDist = Infinity;
+            for (let obs of obstacles) {
+                let obsCenterX = obs.x + obs.w/2;
+                let obsCenterY = obs.y + obs.h/2;
+                let dist = Math.hypot(x - obsCenterX, y - obsCenterY);
+                if (dist < minDist && dist < 150) {
+                    minDist = dist;
+                    nearest = obs;
+                }
+            }
+            return nearest;
         }
         
         function checkCollisionWithFortsForEnemy(entity, radius) {
@@ -335,14 +352,13 @@
         function healBot() {
             if (supportBot.active && supportBot.hp < supportBot.maxHp) {
                 supportBot.hp++;
-                botHealEffects.push({ x: supportBot.x, y: supportBot.y, timer: 20 });
                 updateUI();
                 return true;
             }
             return false;
         }
         
-        // TELEPORTER - SPAWN BOMBER (tối ưu tránh lag)
+        // TELEPORTER
         function spawnTeleporter() {
             if (teleportCooldown <= 0) {
                 let angle = Math.random() * Math.PI * 2;
@@ -359,7 +375,6 @@
         }
         
         function spawnBomberAt(x, y) {
-            // Giới hạn số lượng bomber để tránh lag
             let bomberCount = enemies.filter(e => e.type === 'bomber').length;
             if (bomberCount > 5) return;
             
@@ -400,11 +415,105 @@
             }
         }
         
-        // Xóa đạn của shooter đã chết
+        // Xóa đạn
         function removeBulletsFromShooter(shooterId) {
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 if (enemyBullets[i].shooterId === shooterId) {
                     enemyBullets.splice(i, 1);
+                }
+            }
+            for (let i = boomBullets.length - 1; i >= 0; i--) {
+                if (boomBullets[i].shooterId === shooterId) {
+                    boomBullets.splice(i, 1);
+                }
+            }
+        }
+        
+        // SPAWN BOOM SHOOTER (Bomber lai Shooter)
+        function spawnBoomShooter() {
+            let side = Math.floor(Math.random() * 4);
+            let x, y;
+            const padding = 60;
+            if (side === 0) { x = -padding; y = Math.random() * MAP_H; }
+            else if (side === 1) { x = MAP_W + padding; y = Math.random() * MAP_H; }
+            else if (side === 2) { x = Math.random() * MAP_W; y = -padding; }
+            else { x = Math.random() * MAP_W; y = MAP_H + padding; }
+            
+            let dx = player.x - x, dy = player.y - y;
+            let length = Math.hypot(dx, dy);
+            if (length < 0.001) length = 1;
+            const vx = (dx / length) * 1.1;
+            const vy = (dy / length) * 1.1;
+            
+            enemies.push({
+                id: nextEnemyId++,
+                x: x, y: y, vx: vx, vy: vy, r: 12,
+                type: 'boomshooter', hp: 3, maxHp: 3, color: '#ff44ff', points: 45,
+                shootCooldown: 0,
+                explosionTimer: 300, // 5 giây (60fps * 5 = 300)
+                isSquadMember: false
+            });
+        }
+        
+        // Boom Shooter bắn đạn nổ
+        function boomShooterShoot(shooter) {
+            let dx = player.x - shooter.x, dy = player.y - shooter.y;
+            let len = Math.hypot(dx, dy);
+            if (len < 0.001) len = 1;
+            const normX = dx / len, normY = dy / len;
+            boomBullets.push({ 
+                x: shooter.x, y: shooter.y, 
+                vx: normX * 2.8, vy: normY * 2.8, 
+                radius: 6, damage: 2, 
+                shooterId: shooter.id,
+                explosionRadius: 30,
+                lifeTimer: 0
+            });
+        }
+        
+        // Xử lý đạn nổ của boom shooter
+        function handleBoomBullets() {
+            for (let i = boomBullets.length-1; i >= 0; i--) {
+                const bullet = boomBullets[i];
+                bullet.x += bullet.vx;
+                bullet.y += bullet.vy;
+                bullet.lifeTimer++;
+                
+                // Kiểm tra va chạm với player
+                if (Math.hypot(bullet.x - player.x, bullet.y - player.y) < bullet.radius + player.radius) {
+                    health -= bullet.damage;
+                    updateUI();
+                    explosions.push({ x: bullet.x, y: bullet.y, timer: 15, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
+                    boomBullets.splice(i, 1);
+                    if (health <= 0) gameActive = false;
+                    continue;
+                }
+                
+                // Kiểm tra va chạm với công sự
+                let hitFort = false;
+                for (let f of forts) {
+                    if (!f.active) continue;
+                    if (bullet.x > f.x && bullet.x < f.x + f.w && bullet.y > f.y && bullet.y < f.y + f.h) {
+                        f.hp -= bullet.damage;
+                        explosions.push({ x: bullet.x, y: bullet.y, timer: 12, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
+                        boomBullets.splice(i, 1);
+                        if (f.hp <= 0) f.active = false;
+                        hitFort = true;
+                        break;
+                    }
+                }
+                if (hitFort) continue;
+                
+                // Kiểm tra va chạm với obstacle
+                if (bulletCollidesWithObstacles(bullet, false)) {
+                    explosions.push({ x: bullet.x, y: bullet.y, timer: 12, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
+                    boomBullets.splice(i, 1);
+                    continue;
+                }
+                
+                // Xóa đạn nếu ra khỏi map
+                if (bullet.x < -100 || bullet.x > MAP_W + 100 || bullet.y < -100 || bullet.y > MAP_H + 100) {
+                    boomBullets.splice(i, 1);
                 }
             }
         }
@@ -426,7 +535,7 @@
         
         function spawnEnemy() {
             if (!gameActive) return;
-            if (enemies.length > 45) return;
+            if (enemies.length >= MAX_ENEMIES) return;
             
             if (shouldSpawnSquad()) {
                 spawnShooterPair();
@@ -436,29 +545,38 @@
             let type = 'normal';
             const rand = Math.random();
             
-            if (score > 100) {
-                if (rand < 0.07) type = 'runner';
-                else if (rand < 0.22) type = 'tanker';
-                else if (rand < 0.35) type = 'shooter';
-                else if (rand < 0.44) type = 'bomber';
-                else type = 'normal';
-            } else if (score > 50) {
-                if (rand < 0.05) type = 'runner';
+            // Thêm boomshooter vào tỷ lệ spawn
+            if (score > 150) {
+                if (rand < 0.06) type = 'runner';
                 else if (rand < 0.18) type = 'tanker';
                 else if (rand < 0.28) type = 'shooter';
                 else if (rand < 0.36) type = 'bomber';
+                else if (rand < 0.44) type = 'boomshooter';
+                else type = 'normal';
+            } else if (score > 80) {
+                if (rand < 0.05) type = 'runner';
+                else if (rand < 0.15) type = 'tanker';
+                else if (rand < 0.22) type = 'shooter';
+                else if (rand < 0.28) type = 'bomber';
+                else if (rand < 0.34) type = 'boomshooter';
                 else type = 'normal';
             } else {
                 if (rand < 0.04) type = 'runner';
-                else if (rand < 0.13) type = 'tanker';
-                else if (rand < 0.2) type = 'bomber';
+                else if (rand < 0.12) type = 'tanker';
+                else if (rand < 0.18) type = 'bomber';
                 else type = 'normal';
             }
             
-            spawnSingleEnemy(type);
+            if (type === 'boomshooter') {
+                spawnBoomShooter();
+            } else {
+                spawnSingleEnemy(type);
+            }
         }
         
         function spawnShooterPair() {
+            if (enemies.length >= MAX_ENEMIES - 1) return;
+            
             let side = Math.floor(Math.random() * 4);
             let baseX, baseY;
             const padding = 80;
@@ -471,6 +589,7 @@
             const offsets = [[-30, -20], [30, 20]];
             
             for (let i = 0; i < 2; i++) {
+                if (enemies.length >= MAX_ENEMIES) break;
                 let x = baseX + offsets[i][0];
                 let y = baseY + offsets[i][1];
                 x = Math.min(Math.max(x, 20), MAP_W - 20);
@@ -508,14 +627,14 @@
             
             let radius, speed, hp, color, points;
             switch(type) {
-                case 'runner': radius = 8; speed = 2.3; hp = 1; color = '#ffaa44'; points = 15; break;
+                case 'runner': radius = 8; speed = 2.4; hp = 1; color = '#ffaa44'; points = 15; break;
                 case 'tanker': radius = 16; speed = 0.65; hp = 4; color = '#aa66ff'; points = 30; break;
                 case 'shooter': radius = 11; speed = 0.95; hp = 2; color = '#ff44aa'; points = 20; break;
                 case 'bomber': radius = 13; speed = 0.6; hp = 4; color = '#ff6633'; points = 35; break;
                 default: radius = 9 + Math.random() * 5; speed = 1.1; hp = 1; color = `hsl(${Math.random() * 360}, 85%, 58%)`; points = 10;
             }
             speed = Math.min(speed, 2.8);
-            if (type === 'runner') speed = Math.min(speed, 2.5);
+            if (type === 'runner') speed = Math.min(speed, 2.6);
             
             let dx = player.x - x, dy = player.y - y;
             let length = Math.hypot(dx, dy);
@@ -529,7 +648,8 @@
                 type: type, hp: hp, maxHp: hp, color: color, points: points,
                 shootCooldown: 0,
                 explosionTimer: type === 'bomber' ? Math.floor(150 + Math.random() * 150) : 0,
-                isSquadMember: false
+                isSquadMember: false,
+                hideObstacle: null
             });
         }
         
@@ -545,13 +665,30 @@
         
         function shootFromBot() {
             if (!gameActive || !supportBot.active || enemies.length === 0) return;
-            let closestEnemy = null, closestDist = Infinity;
+            
+            let priorityEnemy = null;
+            let priorityScore = -1;
+            
             for (let enemy of enemies) {
-                const dist = Math.hypot(enemy.x - supportBot.x, enemy.y - supportBot.y);
-                if (dist < closestDist) { closestDist = dist; closestEnemy = enemy; }
+                let scoreVal = 0;
+                const distToPlayer = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+                const distToBot = Math.hypot(enemy.x - supportBot.x, enemy.y - supportBot.y);
+                
+                if (enemy.type === 'shooter') scoreVal += 30;
+                if (enemy.type === 'boomshooter') scoreVal += 40;
+                if (enemy.type === 'runner') scoreVal += 20;
+                if (enemy.type === 'bomber') scoreVal += 25;
+                if (distToPlayer < 200) scoreVal += 40;
+                if (distToBot < 250) scoreVal += 20;
+                
+                if (scoreVal > priorityScore) {
+                    priorityScore = scoreVal;
+                    priorityEnemy = enemy;
+                }
             }
-            if (closestEnemy && closestDist < 500) {
-                let dx = closestEnemy.x - supportBot.x, dy = closestEnemy.y - supportBot.y;
+            
+            if (priorityEnemy) {
+                let dx = priorityEnemy.x - supportBot.x, dy = priorityEnemy.y - supportBot.y;
                 let len = Math.hypot(dx, dy);
                 if (len < 0.001) len = 1;
                 const normX = dx / len, normY = dy / len;
@@ -594,8 +731,13 @@
             if (!gameActive) return;
             
             if (!supportBot.active && gameActive && health > 0) {
-                if (botRespawnTimer > 0) { botRespawnTimer--; updateUI(); }
-                else if (botRespawnTimer === 0) { autoRespawnBot(); }
+                if (botRespawnTimer > 0) { 
+                    botRespawnTimer--; 
+                    updateUI(); 
+                }
+                else if (botRespawnTimer === 0) { 
+                    autoRespawnBot(); 
+                }
             }
             
             if (!supportBot.active) { updateUI(); return; }
@@ -616,15 +758,52 @@
                 supportBot.selfHealTimer--;
             }
             
+            let dodgeX = 0, dodgeY = 0;
+            for (let bullet of enemyBullets) {
+                let dx = supportBot.x - bullet.x;
+                let dy = supportBot.y - bullet.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist < 80 && dist > 0) {
+                    let force = (80 - dist) / 80;
+                    dodgeX += (dx / dist) * force * 4;
+                    dodgeY += (dy / dist) * force * 4;
+                }
+            }
+            for (let bullet of boomBullets) {
+                let dx = supportBot.x - bullet.x;
+                let dy = supportBot.y - bullet.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist < 100 && dist > 0) {
+                    let force = (100 - dist) / 100;
+                    dodgeX += (dx / dist) * force * 5;
+                    dodgeY += (dy / dist) * force * 5;
+                }
+            }
+            
+            for (let enemy of enemies) {
+                let dx = supportBot.x - enemy.x;
+                let dy = supportBot.y - enemy.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist < 70 && dist > 0) {
+                    let force = (70 - dist) / 70;
+                    dodgeX += (dx / dist) * force * 3;
+                    dodgeY += (dy / dist) * force * 3;
+                }
+            }
+            
             const time = Date.now() / 1000;
-            let targetX = player.x + Math.cos(time * 1.5) * 65;
-            let targetY = player.y + Math.sin(time * 1.8) * 50;
+            let orbitX = Math.cos(time * 1.5) * 70;
+            let orbitY = Math.sin(time * 1.8) * 55;
+            let targetX = player.x + orbitX + dodgeX;
+            let targetY = player.y + orbitY + dodgeY;
+            
             targetX = Math.min(Math.max(targetX, supportBot.radius + 10), MAP_W - supportBot.radius - 10);
             targetY = Math.min(Math.max(targetY, supportBot.radius + 10), MAP_H - supportBot.radius - 10);
-            supportBot.x = supportBot.x * 0.92 + targetX * 0.08;
-            supportBot.y = supportBot.y * 0.92 + targetY * 0.08;
+            supportBot.x = supportBot.x * 0.9 + targetX * 0.1;
+            supportBot.y = supportBot.y * 0.9 + targetY * 0.1;
             supportBot.x = Math.min(Math.max(supportBot.x, supportBot.radius + 5), MAP_W - supportBot.radius - 5);
             supportBot.y = Math.min(Math.max(supportBot.y, supportBot.radius + 5), MAP_H - supportBot.radius - 5);
+            
             checkCollisionWithObstaclesForEnemy(supportBot, supportBot.radius);
             checkCollisionWithFortsForEnemy(supportBot, supportBot.radius);
         }
@@ -683,6 +862,9 @@
         }
         
         function triggerBomberExplosion(bomber, index) {
+            // FIX: Kiểm tra bomber còn sống và HP > 0 để tránh nổ nhiều lần
+            if (!bomber || bomber.hp <= 0) return;
+            
             const EXPLOSION_RADIUS = 160;
             const distToPlayer = Math.hypot(player.x - bomber.x, player.y - bomber.y);
             if (distToPlayer < EXPLOSION_RADIUS) {
@@ -719,7 +901,7 @@
                 const e = enemies[i];
                 if (e.type === 'bomber' && e.hp > 0) {
                     if (e.explosionTimer > 0) e.explosionTimer--;
-                    if (e.explosionTimer <= 0) {
+                    if (e.explosionTimer <= 0 && e.hp > 0) {
                         const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
                         if (distToPlayer < EXPLOSION_RADIUS) {
                             health -= 4;
@@ -743,6 +925,24 @@
                             }
                         }
                         explosions.push({ x: e.x, y: e.y, timer: 20, isBig: true });
+                        removeBulletsFromShooter(e.id);
+                        enemies.splice(i, 1);
+                        i--;
+                        updateUI();
+                    }
+                }
+                // Xử lý boom shooter tự nổ sau 5s
+                else if (e.type === 'boomshooter' && e.hp > 0) {
+                    if (e.explosionTimer > 0) e.explosionTimer--;
+                    if (e.explosionTimer <= 0 && e.hp > 0) {
+                        // Tự nổ gây sát thương
+                        const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+                        if (distToPlayer < 80) {
+                            health -= 3;
+                            updateUI();
+                            if (health <= 0) gameActive = false;
+                        }
+                        explosions.push({ x: e.x, y: e.y, timer: 18, isBig: false, isBoom: true, boomRadius: 80 });
                         removeBulletsFromShooter(e.id);
                         enemies.splice(i, 1);
                         i--;
@@ -835,11 +1035,42 @@
             
             for (let i = 0; i < enemies.length; i++) {
                 const e = enemies[i];
+                
+                // SHOOTER AI: Tìm obstacle để núp
+                if (e.type === 'shooter') {
+                    if (!e.hideObstacle || Math.hypot(e.x - (e.hideObstacle.x + e.hideObstacle.w/2), e.y - (e.hideObstacle.y + e.hideObstacle.h/2)) > 100) {
+                        e.hideObstacle = findNearestObstacle(e.x, e.y);
+                    }
+                    
+                    if (e.hideObstacle) {
+                        let targetX = e.hideObstacle.x + e.hideObstacle.w/2;
+                        let targetY = e.hideObstacle.y + e.hideObstacle.h/2;
+                        let dx = targetX - e.x;
+                        let dy = targetY - e.y;
+                        let len = Math.hypot(dx, dy);
+                        if (len > 0) {
+                            e.x += (dx / len) * 0.8;
+                            e.y += (dy / len) * 0.8;
+                        }
+                    }
+                }
+                
+                // BOOM SHOOTER: Đuổi theo player
+                if (e.type === 'boomshooter') {
+                    let dx = player.x - e.x, dy = player.y - e.y;
+                    let len = Math.hypot(dx, dy);
+                    if (len > 0) {
+                        e.x += (dx / len) * 1.2;
+                        e.y += (dy / len) * 1.2;
+                    }
+                }
+                
                 let newX = e.x + e.vx, newY = e.y + e.vy;
                 e.x = newX; e.y = newY;
                 checkCollisionWithObstaclesForEnemy(e, e.r);
                 checkCollisionWithFortsForEnemy(e, e.r);
                 
+                // SHOOTER bắn
                 if (e.type === 'shooter') {
                     if (e.shootCooldown <= 0) {
                         enemyShoot(e);
@@ -849,14 +1080,31 @@
                     }
                 }
                 
+                // BOOM SHOOTER bắn đạn nổ
+                if (e.type === 'boomshooter') {
+                    if (e.shootCooldown <= 0) {
+                        boomShooterShoot(e);
+                        e.shootCooldown = 60;
+                    } else {
+                        e.shootCooldown--;
+                    }
+                }
+                
                 if (Math.hypot(player.x - e.x, player.y - e.y) < player.radius + e.r) {
                     if (e.type === 'runner') {
+                        health -= 2;
+                        updateUI();
                         const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                        player.x += Math.cos(angle) * 12;
-                        player.y += Math.sin(angle) * 12;
+                        player.x += Math.cos(angle) * 20;
+                        player.y += Math.sin(angle) * 20;
                         player.x = Math.min(Math.max(player.x, 20), MAP_W - 20);
                         player.y = Math.min(Math.max(player.y, 20), MAP_H - 20);
                         checkCollisionWithObstaclesForPlayer(player, player.radius);
+                        removeBulletsFromShooter(e.id);
+                        enemies.splice(i, 1);
+                        i--;
+                        if (health <= 0) gameActive = false;
+                        continue;
                     } else {
                         health--;
                         updateUI();
@@ -911,12 +1159,13 @@
         
         function updateSpawning() {
             if (!gameActive) return;
-            if (enemySpawnCooldown <= 0 && enemies.length < 50) {
+            // SPAWN KHI SỐ ENEMY < 25
+            if (enemySpawnCooldown <= 0 && enemies.length < RESPAWN_THRESHOLD) {
                 spawnEnemy();
-                if (score > 200 && Math.random() < 0.25 && enemies.length < 48) spawnEnemy();
-                if (score > 450 && Math.random() < 0.15 && enemies.length < 46) spawnEnemy();
-                enemySpawnCooldown = Math.max(28, BASE_SPAWN_DELAY - Math.floor(score / 300));
-                enemySpawnCooldown = Math.min(enemySpawnCooldown, 45);
+                if (score > 200 && Math.random() < 0.25 && enemies.length < RESPAWN_THRESHOLD) spawnEnemy();
+                if (score > 450 && Math.random() < 0.15 && enemies.length < RESPAWN_THRESHOLD) spawnEnemy();
+                let delay = Math.max(28, BASE_SPAWN_DELAY - Math.floor(score / 300));
+                enemySpawnCooldown = Math.min(delay, 45);
             } else {
                 enemySpawnCooldown--;
             }
@@ -1114,13 +1363,14 @@
             for (let b of bullets) { ctx.beginPath(); ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2); ctx.fillStyle = "#ffec80"; ctx.fill(); }
             for (let b of botBullets) { ctx.beginPath(); ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2); ctx.fillStyle = "#88ccff"; ctx.fill(); }
             for (let b of enemyBullets) { ctx.beginPath(); ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius - 1, 0, Math.PI*2); ctx.fillStyle = "#ff6688"; ctx.fill(); }
+            for (let b of boomBullets) { ctx.beginPath(); ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius, 0, Math.PI*2); ctx.fillStyle = "#ff44ff"; ctx.fill(); ctx.beginPath(); ctx.arc(toScreenX(b.x), toScreenY(b.y), b.radius-2, 0, Math.PI*2); ctx.fillStyle = "#ffff00"; ctx.fill(); }
         }
         
         function drawEnemies() {
             for (let e of enemies) {
                 let screenX = toScreenX(e.x), screenY = toScreenY(e.y);
                 if (screenX + e.r < 0 || screenX - e.r > CAM_W || screenY + e.r < 0 || screenY - e.r > CAM_H) continue;
-                if ((e.type === 'tanker' || e.type === 'bomber') && e.maxHp > 1) {
+                if ((e.type === 'tanker' || e.type === 'bomber' || e.type === 'boomshooter') && e.maxHp > 1) {
                     const hpPercent = e.hp / e.maxHp;
                     ctx.fillStyle = "#ff3333";
                     ctx.fillRect(screenX - e.r - 2, screenY - e.r - 6, (e.r * 2 + 4) * hpPercent, 4);
@@ -1135,6 +1385,15 @@
                 else if (e.type === 'tanker') ctx.fillText("🛡️", screenX - 6, screenY + 5);
                 else if (e.type === 'shooter') ctx.fillText("🔫", screenX - 5, screenY + 5);
                 else if (e.type === 'bomber') ctx.fillText("💣", screenX - 6, screenY + 6);
+                else if (e.type === 'boomshooter') ctx.fillText("💥", screenX - 6, screenY + 6);
+                
+                // Hiển thị timer cho boom shooter
+                if (e.type === 'boomshooter' && e.explosionTimer > 0) {
+                    let timeLeft = Math.ceil(e.explosionTimer / 60);
+                    ctx.font = "bold 10px monospace";
+                    ctx.fillStyle = "#ffaa44";
+                    ctx.fillText(`${timeLeft}s`, screenX - 8, screenY - 12);
+                }
             }
         }
         
@@ -1156,15 +1415,22 @@
             for (let i = 0; i < explosions.length; i++) {
                 const exp = explosions[i];
                 const alpha = exp.timer / 20;
-                const radius = exp.isBig ? 160 : (exp.isWarning ? 65 : 75);
+                const radius = exp.isBig ? 160 : (exp.boomRadius ? exp.boomRadius : (exp.isWarning ? 65 : 75));
                 ctx.beginPath();
                 ctx.arc(toScreenX(exp.x), toScreenY(exp.y), radius * (1 - alpha), 0, Math.PI * 2);
                 ctx.fillStyle = `rgba(255, 50, 0, ${0.6 * alpha})`;
                 ctx.fill();
+                if (exp.boomRadius) {
+                    ctx.beginPath();
+                    ctx.arc(toScreenX(exp.x), toScreenY(exp.y), radius * 0.5 * (1 - alpha), 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 200, 0, ${0.8 * alpha})`;
+                    ctx.fill();
+                }
                 ctx.font = `${22}px monospace`;
                 ctx.fillStyle = `rgba(255, 200, 0, ${alpha})`;
                 if (exp.isWarning) ctx.fillText("⚠️", toScreenX(exp.x) - 12, toScreenY(exp.y) - 20);
                 else if (exp.isTeleportSpawn) ctx.fillText("💣", toScreenX(exp.x) - 12, toScreenY(exp.y) - 18);
+                else if (exp.isBoom) ctx.fillText("💥", toScreenX(exp.x) - 15, toScreenY(exp.y) - 15);
                 else ctx.fillText("💥", toScreenX(exp.x) - 15, toScreenY(exp.y) - 15);
                 exp.timer--;
                 if (exp.timer <= 0) explosions.splice(i, 1);
@@ -1192,7 +1458,7 @@
             ctx.strokeStyle = "#88ff88";
             ctx.lineWidth = 2.2;
             ctx.stroke();
-            if (score >= FORT_COST && forts.filter(f=>f.active).length < MAX_FORTS) {
+            if (gameActive && score >= FORT_COST && forts.filter(f=>f.active).length < MAX_FORTS) {
                 ctx.beginPath();
                 ctx.rect(screenX - 30, screenY - 30, 60, 60);
                 ctx.strokeStyle = "rgba(255,200,0,0.5)";
@@ -1203,12 +1469,12 @@
         function drawUItext() {
             ctx.font = "bold 12px monospace";
             ctx.fillStyle = "#aaffaa88";
-            ctx.fillText(`🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER | 💣 BOMBER | 🧱 FORT (15HP, MAX 10)`, 15, 30);
+            ctx.fillText(`🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER | 💣 BOMBER | 💥 BOOM SHOOTER (MỚI) | 🧱 FORT (MAX 10)`, 15, 30);
             ctx.fillStyle = "#88dd88";
-            ctx.fillText(`⚡ R: RESPAWN BOT (50) | CLICK: KHOÁ/TẮT KHOÁ | DOUBLE CLICK: ĐẶT FORT (30) | HP: ${health}/20`, 15, 55);
+            ctx.fillText(`⚡ R: RESPAWN BOT (50) | ENEMY: ${enemies.length}/${MAX_ENEMIES} | SPAWN KHI < ${RESPAWN_THRESHOLD}`, 15, 55);
             ctx.font = "bold 13px monospace";
             ctx.fillStyle = "#80ffaa";
-            ctx.fillText(`ENEMIES: ${enemies.length}`, CAM_W-120, 30);
+            ctx.fillText(`SCORE: ${score}`, CAM_W-120, 30);
         }
         
         function drawGameOverlay() {
@@ -1233,6 +1499,7 @@
                 updateAutoShoot();
                 updateBotShoot();
                 updateBullets();
+                handleBoomBullets();
                 updateEnemiesAndDamage();
                 handleCollisionsBulletEnemy();
                 handleEnemyBulletCollisions();
@@ -1314,6 +1581,7 @@
             bullets = [];
             botBullets = [];
             enemyBullets = [];
+            boomBullets = [];
             explosions = [];
             healEffects = [];
             botHealEffects = [];
@@ -1336,7 +1604,7 @@
             botRespawnTimer = 0;
             generateObstacles();
             updateCamera();
-            for(let i=0; i<2; i++) spawnEnemy();
+            for(let i = 0; i < 3; i++) spawnEnemy();
             updateUI();
             
             let existingBtn = document.querySelector('.play-again-btn');
