@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vector Field: Fortress Defense</title>
+    <title>Vector Field: Fortress Defense | Updated</title>
     <style>
         * { user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
@@ -107,6 +107,23 @@
             pointer-events: none;
             z-index: 10;
         }
+        .build-progress {
+            position: absolute;
+            bottom: 140px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            padding: 6px 20px;
+            border-radius: 30px;
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 14px;
+            color: #ffaa44;
+            border: 1px solid #ffaa44;
+            pointer-events: none;
+            z-index: 10;
+            white-space: nowrap;
+        }
         @keyframes btnPulse { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
     </style>
 </head>
@@ -115,6 +132,7 @@
     <div class="game-container">
         <canvas id="gameCanvas" width="1000" height="700"></canvas>
         <div class="movement-lock-indicator" id="lockIndicator">🔓 DI CHUYỂN: BẬT</div>
+        <div class="build-progress" id="buildProgress" style="display: none;">🏗️ ĐANG XÂY... 0%</div>
     </div>
     <div class="respawn-area">
         <div class="respawn-timer" id="respawnTimer">🤖 RESPAWN IN: --s</div>
@@ -128,7 +146,7 @@
         🧱 FORTS: <span id="fortCount">0</span><span id="fortLimit" style="font-size:10px;color:#aaa;">/10</span>
     </div>
     <div class="instruction">
-        🖱️ CLICK TRÁI: KHOÁ/TẮT KHOÁ DI CHUYỂN | DOUBLE CLICK: ĐẶT CÔNG SỰ (30 ĐIỂM, MAX 10) | 🌀 TELEPORTER SPAWN BOMBER! | 💥 BOOM SHOOTER MỚI!
+        🖱️ CLICK TRÁI 1 LẦN: KHOÁ DI CHUYỂN | GIỮ CHUỘT 3s: XÂY CÔNG SỰ (30 ĐIỂM, MAX 10) | 💥 BOOM SHOOTER ĐẠN XUYÊN
     </div>
 </div>
 
@@ -150,6 +168,7 @@
         const fortCountSpan = document.getElementById('fortCount');
         const lockIndicator = document.getElementById('lockIndicator');
         const fortLimitSpan = document.getElementById('fortLimit');
+        const buildProgressDiv = document.getElementById('buildProgress');
         
         let gameActive = true;
         let health = 20;
@@ -163,21 +182,24 @@
         let mouseInside = true;
         let movementLocked = false;
         
+        // XÂY DỰNG BẰNG GIỮ CHUỘT
+        let mouseHoldStart = 0;
+        let isHolding = false;
+        let buildRequested = false;
+        const BUILD_HOLD_TIME = 3000; // 3 giây
+        
         // CÔNG SỰ
         let forts = [];
         const MAX_FORTS = 10;
-        let lastClickTime = 0;
-        const DOUBLE_CLICK_DELAY = 300;
         const FORT_COST = 30;
         
         // HIỆU ỨNG
         let healEffects = [];
-        let botHealEffects = [];
         let teleporters = [];
         let teleportCooldown = 0;
         const TELEPORT_INTERVAL = 450;
         
-        // VẬT CẢN - TĂNG LÊN 25
+        // VẬT CẢN
         let obstacles = [];
         const OBSTACLE_COUNT = 25;
         
@@ -205,7 +227,7 @@
         let enemies = [];
         let enemySpawnCooldown = 0;
         const MAX_ENEMIES = 40;
-        const RESPAWN_THRESHOLD = 25; // SPAWN KHI < 25
+        const RESPAWN_THRESHOLD = 25;
         const BASE_SPAWN_DELAY = 50;
         
         // KHỞI TẠO MAP
@@ -256,20 +278,22 @@
             return false;
         }
         
-        // Tìm obstacle gần nhất để núp
-        function findNearestObstacle(x, y) {
-            let nearest = null;
-            let minDist = Infinity;
+        // Shooter tìm vật cản để núp (KHÔNG lao vào)
+        function findCoverObstacle(x, y) {
+            let best = null;
+            let bestDist = Infinity;
             for (let obs of obstacles) {
                 let obsCenterX = obs.x + obs.w/2;
                 let obsCenterY = obs.y + obs.h/2;
-                let dist = Math.hypot(x - obsCenterX, y - obsCenterY);
-                if (dist < minDist && dist < 150) {
-                    minDist = dist;
-                    nearest = obs;
+                let distToPlayer = Math.hypot(player.x - obsCenterX, player.y - obsCenterY);
+                let distToSelf = Math.hypot(x - obsCenterX, y - obsCenterY);
+                // Chọn vật cản gần và che chắn tốt
+                if (distToSelf < bestDist && distToSelf < 200 && distToPlayer > 100) {
+                    bestDist = distToSelf;
+                    best = obs;
                 }
             }
-            return nearest;
+            return best;
         }
         
         function checkCollisionWithFortsForEnemy(entity, radius) {
@@ -307,7 +331,7 @@
             return false;
         }
         
-        // ĐẶT CÔNG SỰ
+        // ĐẶT CÔNG SỰ (GIỮ CHUỘT)
         function tryPlaceFort() {
             if (!gameActive) return false;
             if (score < FORT_COST) return false;
@@ -387,7 +411,7 @@
             enemies.push({
                 id: nextEnemyId++,
                 x: x, y: y, vx: vx, vy: vy, r: 13,
-                type: 'bomber', hp: 4, maxHp: 4, color: '#ff6633', points: 35,
+                type: 'bomber', hp: 4, maxHp: 4, color: '#ff6633', points: 10,
                 shootCooldown: 0,
                 explosionTimer: 70,
                 isSquadMember: false
@@ -415,7 +439,6 @@
             }
         }
         
-        // Xóa đạn
         function removeBulletsFromShooter(shooterId) {
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 if (enemyBullets[i].shooterId === shooterId) {
@@ -429,7 +452,7 @@
             }
         }
         
-        // SPAWN BOOM SHOOTER (Bomber lai Shooter)
+        // SPAWN BOOM SHOOTER (phổ biến hơn)
         function spawnBoomShooter() {
             let side = Math.floor(Math.random() * 4);
             let x, y;
@@ -448,14 +471,14 @@
             enemies.push({
                 id: nextEnemyId++,
                 x: x, y: y, vx: vx, vy: vy, r: 12,
-                type: 'boomshooter', hp: 3, maxHp: 3, color: '#ff44ff', points: 45,
+                type: 'boomshooter', hp: 3, maxHp: 3, color: '#ff44ff', points: 10,
                 shootCooldown: 0,
-                explosionTimer: 300, // 5 giây (60fps * 5 = 300)
+                explosionTimer: 300,
                 isSquadMember: false
             });
         }
         
-        // Boom Shooter bắn đạn nổ
+        // Boom Shooter bắn đạn XUYÊN (không va chạm vật cản, công sự)
         function boomShooterShoot(shooter) {
             let dx = player.x - shooter.x, dy = player.y - shooter.y;
             let len = Math.hypot(dx, dy);
@@ -463,21 +486,19 @@
             const normX = dx / len, normY = dy / len;
             boomBullets.push({ 
                 x: shooter.x, y: shooter.y, 
-                vx: normX * 2.8, vy: normY * 2.8, 
+                vx: normX * 3.2, vy: normY * 3.2, 
                 radius: 6, damage: 2, 
                 shooterId: shooter.id,
-                explosionRadius: 30,
-                lifeTimer: 0
+                explosionRadius: 35
             });
         }
         
-        // Xử lý đạn nổ của boom shooter
+        // Xử lý đạn nổ của boom shooter (XUYÊN - không va chạm vật cản)
         function handleBoomBullets() {
             for (let i = boomBullets.length-1; i >= 0; i--) {
                 const bullet = boomBullets[i];
                 bullet.x += bullet.vx;
                 bullet.y += bullet.vy;
-                bullet.lifeTimer++;
                 
                 // Kiểm tra va chạm với player
                 if (Math.hypot(bullet.x - player.x, bullet.y - player.y) < bullet.radius + player.radius) {
@@ -486,28 +507,6 @@
                     explosions.push({ x: bullet.x, y: bullet.y, timer: 15, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
                     boomBullets.splice(i, 1);
                     if (health <= 0) gameActive = false;
-                    continue;
-                }
-                
-                // Kiểm tra va chạm với công sự
-                let hitFort = false;
-                for (let f of forts) {
-                    if (!f.active) continue;
-                    if (bullet.x > f.x && bullet.x < f.x + f.w && bullet.y > f.y && bullet.y < f.y + f.h) {
-                        f.hp -= bullet.damage;
-                        explosions.push({ x: bullet.x, y: bullet.y, timer: 12, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
-                        boomBullets.splice(i, 1);
-                        if (f.hp <= 0) f.active = false;
-                        hitFort = true;
-                        break;
-                    }
-                }
-                if (hitFort) continue;
-                
-                // Kiểm tra va chạm với obstacle
-                if (bulletCollidesWithObstacles(bullet, false)) {
-                    explosions.push({ x: bullet.x, y: bullet.y, timer: 12, isBig: false, isBoom: true, boomRadius: bullet.explosionRadius });
-                    boomBullets.splice(i, 1);
                     continue;
                 }
                 
@@ -545,24 +544,24 @@
             let type = 'normal';
             const rand = Math.random();
             
-            // Thêm boomshooter vào tỷ lệ spawn
-            if (score > 150) {
-                if (rand < 0.06) type = 'runner';
-                else if (rand < 0.18) type = 'tanker';
-                else if (rand < 0.28) type = 'shooter';
-                else if (rand < 0.36) type = 'bomber';
-                else if (rand < 0.44) type = 'boomshooter';
-                else type = 'normal';
-            } else if (score > 80) {
+            // Tỷ lệ spawn: BoomShooter phổ biến hơn, spawn cùng bomber
+            if (score > 100) {
                 if (rand < 0.05) type = 'runner';
                 else if (rand < 0.15) type = 'tanker';
-                else if (rand < 0.22) type = 'shooter';
-                else if (rand < 0.28) type = 'bomber';
-                else if (rand < 0.34) type = 'boomshooter';
+                else if (rand < 0.25) type = 'shooter';
+                else if (rand < 0.40) type = 'bomber';
+                else if (rand < 0.60) type = 'boomshooter';
                 else type = 'normal';
-            } else {
+            } else if (score > 50) {
                 if (rand < 0.04) type = 'runner';
                 else if (rand < 0.12) type = 'tanker';
+                else if (rand < 0.20) type = 'shooter';
+                else if (rand < 0.32) type = 'bomber';
+                else if (rand < 0.48) type = 'boomshooter';
+                else type = 'normal';
+            } else {
+                if (rand < 0.03) type = 'runner';
+                else if (rand < 0.10) type = 'tanker';
                 else if (rand < 0.18) type = 'bomber';
                 else type = 'normal';
             }
@@ -606,7 +605,7 @@
                 enemies.push({
                     id: nextEnemyId++,
                     x: x, y: y, vx: vx, vy: vy, r: 11,
-                    type: 'shooter', hp: 2, maxHp: 2, color: '#ff44aa', points: 20,
+                    type: 'shooter', hp: 2, maxHp: 2, color: '#ff44aa', points: 8,
                     shootCooldown: Math.floor(20 + Math.random() * 30),
                     explosionTimer: 0,
                     isSquadMember: true
@@ -627,11 +626,11 @@
             
             let radius, speed, hp, color, points;
             switch(type) {
-                case 'runner': radius = 8; speed = 2.4; hp = 1; color = '#ffaa44'; points = 15; break;
-                case 'tanker': radius = 16; speed = 0.65; hp = 4; color = '#aa66ff'; points = 30; break;
-                case 'shooter': radius = 11; speed = 0.95; hp = 2; color = '#ff44aa'; points = 20; break;
-                case 'bomber': radius = 13; speed = 0.6; hp = 4; color = '#ff6633'; points = 35; break;
-                default: radius = 9 + Math.random() * 5; speed = 1.1; hp = 1; color = `hsl(${Math.random() * 360}, 85%, 58%)`; points = 10;
+                case 'runner': radius = 8; speed = 2.4; hp = 1; color = '#ffaa44'; points = 8; break;
+                case 'tanker': radius = 16; speed = 0.65; hp = 4; color = '#aa66ff'; points = 15; break;
+                case 'shooter': radius = 11; speed = 0.95; hp = 2; color = '#ff44aa'; points = 8; break;
+                case 'bomber': radius = 13; speed = 0.6; hp = 4; color = '#ff6633'; points = 10; break;
+                default: radius = 9 + Math.random() * 5; speed = 1.1; hp = 1; color = `hsl(${Math.random() * 360}, 85%, 58%)`; points = 5;
             }
             speed = Math.min(speed, 2.8);
             if (type === 'runner') speed = Math.min(speed, 2.6);
@@ -649,7 +648,7 @@
                 shootCooldown: 0,
                 explosionTimer: type === 'bomber' ? Math.floor(150 + Math.random() * 150) : 0,
                 isSquadMember: false,
-                hideObstacle: null
+                coverObstacle: null
             });
         }
         
@@ -862,7 +861,6 @@
         }
         
         function triggerBomberExplosion(bomber, index) {
-            // FIX: Kiểm tra bomber còn sống và HP > 0 để tránh nổ nhiều lần
             if (!bomber || bomber.hp <= 0) return;
             
             const EXPLOSION_RADIUS = 160;
@@ -931,11 +929,9 @@
                         updateUI();
                     }
                 }
-                // Xử lý boom shooter tự nổ sau 5s
                 else if (e.type === 'boomshooter' && e.hp > 0) {
                     if (e.explosionTimer > 0) e.explosionTimer--;
                     if (e.explosionTimer <= 0 && e.hp > 0) {
-                        // Tự nổ gây sát thương
                         const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
                         if (distToPlayer < 80) {
                             health -= 3;
@@ -1036,15 +1032,20 @@
             for (let i = 0; i < enemies.length; i++) {
                 const e = enemies[i];
                 
-                // SHOOTER AI: Tìm obstacle để núp
+                // SHOOTER: Tìm vật cản để núp (không lao vào)
                 if (e.type === 'shooter') {
-                    if (!e.hideObstacle || Math.hypot(e.x - (e.hideObstacle.x + e.hideObstacle.w/2), e.y - (e.hideObstacle.y + e.hideObstacle.h/2)) > 100) {
-                        e.hideObstacle = findNearestObstacle(e.x, e.y);
+                    if (!e.coverObstacle || Math.hypot(e.x - (e.coverObstacle.x + e.coverObstacle.w/2), e.y - (e.coverObstacle.y + e.coverObstacle.h/2)) > 150) {
+                        e.coverObstacle = findCoverObstacle(e.x, e.y);
                     }
                     
-                    if (e.hideObstacle) {
-                        let targetX = e.hideObstacle.x + e.hideObstacle.w/2;
-                        let targetY = e.hideObstacle.y + e.hideObstacle.h/2;
+                    if (e.coverObstacle) {
+                        // Di chuyển ra phía sau vật cản, hướng về player
+                        let coverX = e.coverObstacle.x + e.coverObstacle.w/2;
+                        let coverY = e.coverObstacle.y + e.coverObstacle.h/2;
+                        let angleToPlayer = Math.atan2(player.y - coverY, player.x - coverX);
+                        let targetX = coverX + Math.cos(angleToPlayer) * (e.coverObstacle.w/2 + e.r + 5);
+                        let targetY = coverY + Math.sin(angleToPlayer) * (e.coverObstacle.h/2 + e.r + 5);
+                        
                         let dx = targetX - e.x;
                         let dy = targetY - e.y;
                         let len = Math.hypot(dx, dy);
@@ -1052,6 +1053,10 @@
                             e.x += (dx / len) * 0.8;
                             e.y += (dy / len) * 0.8;
                         }
+                    } else {
+                        // Không có vật cản, di chuyển bình thường
+                        let newX = e.x + e.vx, newY = e.y + e.vy;
+                        e.x = newX; e.y = newY;
                     }
                 }
                 
@@ -1065,8 +1070,12 @@
                     }
                 }
                 
-                let newX = e.x + e.vx, newY = e.y + e.vy;
-                e.x = newX; e.y = newY;
+                // Các loại enemy khác di chuyển bình thường
+                if (e.type !== 'shooter' && e.type !== 'boomshooter') {
+                    let newX = e.x + e.vx, newY = e.y + e.vy;
+                    e.x = newX; e.y = newY;
+                }
+                
                 checkCollisionWithObstaclesForEnemy(e, e.r);
                 checkCollisionWithFortsForEnemy(e, e.r);
                 
@@ -1084,7 +1093,7 @@
                 if (e.type === 'boomshooter') {
                     if (e.shootCooldown <= 0) {
                         boomShooterShoot(e);
-                        e.shootCooldown = 60;
+                        e.shootCooldown = 55;
                     } else {
                         e.shootCooldown--;
                     }
@@ -1159,7 +1168,6 @@
         
         function updateSpawning() {
             if (!gameActive) return;
-            // SPAWN KHI SỐ ENEMY < 25
             if (enemySpawnCooldown <= 0 && enemies.length < RESPAWN_THRESHOLD) {
                 spawnEnemy();
                 if (score > 200 && Math.random() < 0.25 && enemies.length < RESPAWN_THRESHOLD) spawnEnemy();
@@ -1387,7 +1395,6 @@
                 else if (e.type === 'bomber') ctx.fillText("💣", screenX - 6, screenY + 6);
                 else if (e.type === 'boomshooter') ctx.fillText("💥", screenX - 6, screenY + 6);
                 
-                // Hiển thị timer cho boom shooter
                 if (e.type === 'boomshooter' && e.explosionTimer > 0) {
                     let timeLeft = Math.ceil(e.explosionTimer / 60);
                     ctx.font = "bold 10px monospace";
@@ -1469,12 +1476,31 @@
         function drawUItext() {
             ctx.font = "bold 12px monospace";
             ctx.fillStyle = "#aaffaa88";
-            ctx.fillText(`🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER | 💣 BOMBER | 💥 BOOM SHOOTER (MỚI) | 🧱 FORT (MAX 10)`, 15, 30);
+            ctx.fillText(`🏃 RUNNER | 🛡️ TANKER | 🔫 SHOOTER | 💣 BOMBER | 💥 BOOM SHOOTER | 🧱 FORT (MAX 10)`, 15, 30);
             ctx.fillStyle = "#88dd88";
-            ctx.fillText(`⚡ R: RESPAWN BOT (50) | ENEMY: ${enemies.length}/${MAX_ENEMIES} | SPAWN KHI < ${RESPAWN_THRESHOLD}`, 15, 55);
+            ctx.fillText(`⚡ R: RESPAWN BOT (50) | CLICK: LOCK | HOLD 3s: BUILD | ENEMY: ${enemies.length}/${MAX_ENEMIES}`, 15, 55);
             ctx.font = "bold 13px monospace";
             ctx.fillStyle = "#80ffaa";
             ctx.fillText(`SCORE: ${score}`, CAM_W-120, 30);
+        }
+        
+        function drawBuildProgress() {
+            if (isHolding && buildRequested) {
+                let elapsed = Date.now() - mouseHoldStart;
+                let percent = Math.min(100, Math.floor((elapsed / BUILD_HOLD_TIME) * 100));
+                buildProgressDiv.style.display = "block";
+                buildProgressDiv.innerText = `🏗️ ĐANG XÂY... ${percent}%`;
+                if (elapsed >= BUILD_HOLD_TIME) {
+                    buildProgressDiv.style.display = "none";
+                    if (tryPlaceFort()) {
+                        // Xây thành công
+                    }
+                    isHolding = false;
+                    buildRequested = false;
+                }
+            } else if (!isHolding) {
+                buildProgressDiv.style.display = "none";
+            }
         }
         
         function drawGameOverlay() {
@@ -1508,6 +1534,7 @@
                 spawnTeleporter();
                 handleTeleporters();
                 updateCamera();
+                drawBuildProgress();
                 
                 if (health <= 0) {
                     gameActive = false;
@@ -1545,20 +1572,38 @@
             mouseInside = true;
         }
         
-        function onMouseLeave() { mouseInside = false; }
+        function onMouseLeave() { 
+            mouseInside = false;
+            if (isHolding) {
+                isHolding = false;
+                buildRequested = false;
+                buildProgressDiv.style.display = "none";
+            }
+        }
         function onMouseEnter(e) { mouseInside = true; onMouseMove(e); }
         
         function onMouseDown(e) {
             e.preventDefault();
-            const now = Date.now();
-            if (now - lastClickTime < DOUBLE_CLICK_DELAY) {
-                tryPlaceFort();
-                lastClickTime = 0;
-            } else {
+            if (!gameActive) return;
+            
+            // Click 1 lần: khoá di chuyển (không xây)
+            if (!isHolding) {
                 movementLocked = !movementLocked;
                 updateUI();
-                lastClickTime = now;
             }
+            
+            // Bắt đầu giữ chuột để xây
+            isHolding = true;
+            buildRequested = true;
+            mouseHoldStart = Date.now();
+        }
+        
+        function onMouseUp(e) {
+            e.preventDefault();
+            // Huỷ xây nếu chưa đủ 3s
+            isHolding = false;
+            buildRequested = false;
+            buildProgressDiv.style.display = "none";
         }
         
         function onKeyDown(e) {
@@ -1572,6 +1617,7 @@
         canvas.addEventListener('mouseleave', onMouseLeave);
         canvas.addEventListener('mouseenter', onMouseEnter);
         canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('mouseup', onMouseUp);
         window.addEventListener('keydown', onKeyDown);
         
         function initGame() {
@@ -1584,7 +1630,6 @@
             boomBullets = [];
             explosions = [];
             healEffects = [];
-            botHealEffects = [];
             teleporters = [];
             enemies = [];
             forts = [];
