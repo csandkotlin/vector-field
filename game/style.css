@@ -1,0 +1,198 @@
+* {
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    background: radial-gradient(circle at center, #0a0f0a, #000000);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    font-family: 'Courier New', 'Fira Code', monospace;
+    overflow: hidden;
+    cursor: none;
+}
+
+.game-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.game-container {
+    position: relative;
+    box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
+    border-radius: 16px;
+    background: #000;
+    padding: 4px;
+}
+
+canvas {
+    display: block;
+    margin: 0 auto;
+    border-radius: 12px;
+    box-shadow: 0 0 0 2px #1a4d1a;
+    cursor: none;
+}
+
+.status {
+    position: absolute;
+    top: 16px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(3px);
+    padding: 6px 14px;
+    border-left: 4px solid #00ff66;
+    font-weight: bold;
+    font-size: 14px;
+    z-index: 10;
+    pointer-events: none;
+    border-radius: 0 12px 12px 0;
+    color: #bbffbb;
+    text-shadow: 0 0 4px #00aa33;
+}
+
+.stats-panel {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(3px);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: bold;
+    color: #0f0;
+    border: 1px solid #2a6b2a;
+    text-align: right;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.respawn-area {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 8px 20px;
+    border-radius: 40px;
+    border: 1px solid #ff6600;
+    backdrop-filter: blur(4px);
+}
+
+.respawn-timer {
+    background: linear-gradient(135deg, #1a3a1a, #0a2a0a);
+    color: #ffaa66;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 30px;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 14px;
+    box-shadow: 0 0 10px rgba(255, 102, 0, 0.3);
+}
+
+.respawn-hint {
+    color: #ffaa66;
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.respawn-hint kbd {
+    background: #333;
+    padding: 2px 8px;
+    border-radius: 5px;
+    color: #ffaa66;
+    margin: 0 3px;
+}
+
+.instruction {
+    position: absolute;
+    bottom: 18px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    color: #4a8f4a;
+    background: rgba(0, 0, 0, 0.5);
+    width: fit-content;
+    margin: 0 auto;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-family: monospace;
+    pointer-events: none;
+    backdrop-filter: blur(2px);
+}
+
+.play-again-btn {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff6600;
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 40px;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 20;
+    box-shadow: 0 0 20px rgba(255, 102, 0, 0.5);
+    transition: all 0.2s;
+    animation: btnPulse 1s infinite;
+}
+
+.play-again-btn:hover {
+    transform: translateX(-50%) scale(1.05);
+    background: #ff8844;
+}
+
+.movement-lock-indicator {
+    position: absolute;
+    bottom: 80px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.build-progress {
+    position: absolute;
+    bottom: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    padding: 6px 20px;
+    border-radius: 30px;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 14px;
+    color: #ffaa44;
+    border: 1px solid #ffaa44;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+}
+
+@keyframes btnPulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
