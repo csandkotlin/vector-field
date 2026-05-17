@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Vector Field: Fortress Defense | Updated</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="game-container">
+        <canvas id="gameCanvas" width="1000" height="700"></canvas>
+        <div class="movement-lock-indicator" id="lockIndicator">🔓 DI CHUYỂN: BẬT</div>
+        <div class="build-progress" id="buildProgress" style="display: none;">🏗️ ĐANG XÂY... 0%</div>
+    </div>
+    <div class="respawn-area">
+        <div class="respawn-timer" id="respawnTimer">🤖 RESPAWN IN: --s</div>
+        <div class="respawn-hint">🎮 <kbd>R</kbd> - RESPAWN BOT (50)</div>
+    </div>
+    <div class="status">⚡ FORTRESS DEFENSE | HP 20 | RAPID FIRE ⚡</div>
+    <div class="stats-panel">
+        ❤️ HP: <span id="hpDisplay" style="color:#ff5e5e;">20</span>&nbsp;&nbsp;|&nbsp;
+        🎯 SCORE: <span id="scoreDisplay">0</span>&nbsp;&nbsp;|&nbsp;
+        🤖 BOT: <span id="botStatus" style="color:#44aaff;">ACTIVE</span>&nbsp;&nbsp;|&nbsp;
+        🧱 FORTS: <span id="fortCount">0</span><span id="fortLimit" style="font-size:10px;color:#aaa;">/10</span>
+    </div>
+    <div class="instruction">
+        🖱️ NHẤN ĐÚP CHUỘT: KHOÁ/MỞ DI CHUYỂN | GIỮ CHUỘT 5s: XÂY CÔNG SỰ (55 ĐIỂM, MAX 10)
+    </div>
+</div>
+
+<script src="utils.js"></script>
+<script src="player.js"></script>
+<script src="enemies.js"></script>
+<script src="bullets.js"></script>
+<script src="forts.js"></script>
+<script src="bot.js"></script>
+<script src="render.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
